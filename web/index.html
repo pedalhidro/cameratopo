@@ -449,6 +449,9 @@ function reliefOpts(op) {
   return {
     opacity: op, minZoom: 0, maxNativeZoom: RELIEF_MAX_NATIVE, maxZoom: 22,
     keepBuffer: 4, updateWhenZooming: false,
+    // Tela HiDPI/Retina: pede tiles um zoom acima e mostra em ½ tamanho, pra o
+    // relevo não sair "quadriculado" (256 px reampliados 2× pelo navegador).
+    detectRetina: true,
     attribution: "Câmera Topográfica · FABDEM",
   };
 }
