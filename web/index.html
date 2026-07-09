@@ -51,15 +51,16 @@
 
   /* ── Painel de controles ─────────────────────────────────────────────── */
   #panel {
-    position: absolute; top: 12px; right: 12px; z-index: 1000;
+    position: absolute; top: 64px; right: 12px; z-index: 1000;
     width: 324px; max-width: calc(100vw - 24px);
-    max-height: calc(100vh - 24px); overflow-y: auto;
+    max-height: calc(100vh - 76px); overflow-y: auto;
     background: var(--panel-bg);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); border-radius: 14px;
     box-shadow: var(--panel-shadow);
     padding: 14px 16px 16px;
   }
+  #panel.collapsed { display: none; }
   #panel::-webkit-scrollbar { width: 8px; }
   #panel::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 8px; }
 
@@ -139,9 +140,9 @@
   #legend .scale { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 4px; }
   #legend .cap { font-size: 10px; color: var(--panel-muted); margin-top: 5px; }
 
-  /* Botão hamburguer (abre/fecha o painel no mobile) */
+  /* Botão hamburguer (abre/fecha o painel) — sempre visível */
   #panel-toggle {
-    position: absolute; top: 12px; right: 12px; z-index: 1001; display: none;
+    position: absolute; top: 12px; right: 12px; z-index: 1001; display: block;
     width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
     background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
@@ -183,9 +184,7 @@
   .toast.show { opacity: 1; }
 
   @media (max-width: 640px) {
-    #panel { top: 64px; right: 12px; left: 12px; width: auto; display: none; }
-    #panel.open { display: block; }
-    #panel-toggle { display: block; }
+    #panel { right: 12px; left: 12px; width: auto; }
   }
 </style>
 </head>
@@ -327,7 +326,11 @@
         em qualquer cliente de mapa. O link desta vista guarda todo o estado no
         hash da URL, então uma configuração é compartilhável.</p>
 
-      <p style="margin-top:14px">Relevo: <b>FABDEM</b> / DEM-SP · paleta
+      <h3>Créditos</h3>
+      <p>Mapa base © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+        · Satélite © Esri, Maxar, Earthstar Geographics · Mapa por
+        <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>.</p>
+      <p>Relevo: <b>Câmera Topográfica</b> — <b>FABDEM</b> / DEM-SP, paleta
         <b>cmocean.phase</b> × realce de declividade ·
         <a href="https://amora.pedalhidrografi.co" target="_blank" rel="noopener">Pedal Hidrográfico ↗</a></p>
     </div>
@@ -428,7 +431,7 @@ function tileUrl(absolute) {
 }
 
 // ── Mapa ─────────────────────────────────────────────────────────────────────
-const map = L.map("map", { center: P.center, zoom: P.zoom, minZoom: 2, maxZoom: 22, zoomControl: true, attributionControl: true });
+const map = L.map("map", { center: P.center, zoom: P.zoom, minZoom: 2, maxZoom: 22, zoomControl: true, attributionControl: false });
 
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, attribution: "© OpenStreetMap",
@@ -742,8 +745,8 @@ $("help-close").addEventListener("click", closeHelp);
 helpModal.addEventListener("click", (e) => { if (e.target === helpModal) closeHelp(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !helpModal.hidden) closeHelp(); });
 
-// ── Toggle do painel (hamburguer, mobile) ────────────────────────────────────
-$("panel-toggle").addEventListener("click", () => $("panel").classList.toggle("open"));
+// ── Toggle do painel (hamburguer) — abre/fecha em qualquer tamanho de tela ───
+$("panel-toggle").addEventListener("click", () => $("panel").classList.toggle("collapsed"));
 
 // ── Link colado na MESMA janela ──────────────────────────────────────────────
 // readHash só roda no boot; colar um link que muda só o hash NÃO recarrega a
@@ -760,6 +763,7 @@ window.addEventListener("hashchange", () => {
 });
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
+if (window.innerWidth <= 640) $("panel").classList.add("collapsed");   // começa fechado no celular
 L.control.scale({ imperial: false }).addTo(map);
 syncInputs(); updateLegend();
 if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
