@@ -745,6 +745,20 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !helpMod
 // ── Toggle do painel (hamburguer, mobile) ────────────────────────────────────
 $("panel-toggle").addEventListener("click", () => $("panel").classList.toggle("open"));
 
+// ── Link colado na MESMA janela ──────────────────────────────────────────────
+// readHash só roda no boot; colar um link que muda só o hash NÃO recarrega a
+// página (dispara `hashchange`, não reload). writeHash usa replaceState, que não
+// dispara hashchange, então este handler só reage a mudanças EXTERNAS (colar,
+// voltar/avançar) — sem loop de feedback.
+window.addEventListener("hashchange", () => {
+  readHash();
+  map.setView(P.center, P.zoom);
+  applyBase();
+  autoResolved = false; lastAutoKey = "";
+  syncInputs(); updateLegend(); refreshTiles();
+  if (P.auto) runAutoEstimate();
+});
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 L.control.scale({ imperial: false }).addTo(map);
 syncInputs(); updateLegend();
