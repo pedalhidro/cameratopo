@@ -4,8 +4,8 @@ Serve tiles PNG do relevo em `GET /{z}/{x}/{y}.png` lendo os COGs do FABDEM /
 DEM de SP (read-only, /vsicurl/). DELIBERADAMENTE fora do backend do amora —
 não toca catálogo/estado; roda em qualquer lugar (laptop, Cloud Run próprio).
 
-    pip install -r cameratopo/requirements.txt
-    python cameratopo/server.py            # http://127.0.0.1:8400
+    pip install -r requirements.txt
+    python server.py            # http://127.0.0.1:8400
 
 Endpoint:
     GET /{z}/{x}/{y}.png   tile do relevo. Query params (todos opcionais):

@@ -117,12 +117,12 @@ Sem auth — igual ao resto do projeto (restrinja na borda se precisar).
 ## Rodando local
 
 ```sh
-pip install -r cameratopo/requirements.txt
-python cameratopo/server.py          # http://127.0.0.1:8400
+pip install -r requirements.txt
+python server.py          # http://127.0.0.1:8400
 # ex.: http://127.0.0.1:8400/13/3035/4646.png?elevMin=720&elevMax=920&cycles=3
 ```
 
-`python cameratopo/render.py` roda um smoke test offline (DEM sintético, sem
+`python render.py` roda um smoke test offline (DEM sintético, sem
 rede) que valida a matemática de declividade/paleta.
 
 ## Deploy (Cloud Run + Cloudflare)
@@ -134,7 +134,7 @@ escala por instâncias).
 
 ```sh
 gcloud run deploy cameratopo \
-  --source cameratopo \
+  --source . \
   --region southamerica-east1 \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 4 --concurrency 40
