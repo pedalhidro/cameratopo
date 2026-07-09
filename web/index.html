@@ -326,6 +326,18 @@
         em qualquer cliente de mapa. O link desta vista guarda todo o estado no
         hash da URL, então uma configuração é compartilhável.</p>
 
+      <h3>Avançado — qualidade do relevo (superamostragem)</h3>
+      <p>Quantos pixels o servidor lê por lado ao renderizar um tile <b>afastado</b>.
+        Um tile de z11 cobre ~600 células do FABDEM: quanto mais pixels lidos, mais
+        perto do nativo a declividade é calculada (mais textura fina, menos
+        serrilhado) — e mais custa por tile. <b>512</b> é o padrão; <b>1024</b> é o
+        máximo. No zoom aproximado não muda nada.</p>
+      <div class="seg seg-mini" id="seg-ss" role="group" aria-label="Superamostragem">
+        <button data-ss="256" aria-pressed="false">256 · rápido</button>
+        <button data-ss="512" aria-pressed="true">512 · padrão</button>
+        <button data-ss="1024" aria-pressed="false">1024 · alta</button>
+      </div>
+
       <h3>Créditos</h3>
       <p>Mapa base © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
         · Satélite © Esri, Maxar, Earthstar Geographics · Mapa por
@@ -356,7 +368,13 @@ const DEFAULTS = {
   emin: 700, emax: 1200, slope: 46,
   gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
   base: "osm", slopeUnit: "pct",
+  ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
 };
+
+// Superamostragem: px lidos por lado no zoom afastado (query `ss` do tile). Mais
+// = declividade computada mais perto da resolução nativa do DEM (mais textura,
+// menos serrilhado), mais CPU/rede por tile. O servidor limita em 1024.
+const SS_CHOICES = [256, 512, 1024];
 
 // Sem restrição de zoom: o servidor decide o que consegue renderizar (relevo
 // some sozinho, transparente, quando o mosaico FABDEM fica afastado demais; o
@@ -383,6 +401,8 @@ function readHash() {
   P.opacity = Math.round(num("op", P.opacity));
   if (h.get("base") === "satellite") P.base = "satellite";
   if (h.get("su") === "deg") P.slopeUnit = "deg";
+  const ss = Math.round(num("ss", P.ss));
+  if (SS_CHOICES.includes(ss)) P.ss = ss;
 }
 readHash();
 
@@ -405,7 +425,7 @@ function commitHash() {
   q.set("auto", P.auto ? "1" : "0");
   if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
   q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
-  q.set("base", P.base); q.set("su", P.slopeUnit);
+  q.set("base", P.base); q.set("su", P.slopeUnit); q.set("ss", P.ss);
   history.replaceState(null, "", "#" + q.toString());
 }
 function writeHash() {
@@ -426,6 +446,7 @@ function tileUrl(absolute) {
   q.set("slopeGamma", String(P.gamma));
   q.set("cycles", String(P.cycles));
   q.set("dem", P.dem);
+  q.set("ss", String(P.ss));   // superamostragem (qualidade no zoom afastado)
   const base = absolute ? location.origin : "";
   return `${base}/{z}/{x}/{y}.png?${q.toString()}`;
 }
@@ -616,6 +637,7 @@ function syncInputs() {
   $("opacity").value = P.opacity; $("opacity-val").textContent = `${P.opacity} %`;
   for (const b of $("seg-dem").children) b.setAttribute("aria-pressed", String(b.dataset.dem === P.dem));
   for (const b of $("seg-base").children) b.setAttribute("aria-pressed", String(b.dataset.base === P.base));
+  for (const b of $("seg-ss").children) b.setAttribute("aria-pressed", String(Number(b.dataset.ss) === P.ss));
 }
 
 // auto (segue a tela)
@@ -682,6 +704,14 @@ $("seg-dem").addEventListener("click", (e) => {
 $("seg-base").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   P.base = b.dataset.base; applyBase(); syncInputs(); writeHash();
+});
+// superamostragem (Ajuda → Avançado): muda a querystring dos tiles
+$("seg-ss").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const v = Number(b.dataset.ss);
+  if (!SS_CHOICES.includes(v) || v === P.ss) return;
+  P.ss = v; syncInputs(); refreshTiles(); writeHash();
+  toast(`Superamostragem: ${v} px`);
 });
 
 // ── Copiar ───────────────────────────────────────────────────────────────────

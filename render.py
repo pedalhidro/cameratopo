@@ -72,6 +72,10 @@ MIN_READ_SIZE = int(os.environ.get("CAMERATOPO_MIN_READ_SIZE") or 8)
 # (`setDefaultProjection(nativo)` + `ee.Terrain.slope` + pirâmide com reducer mean).
 # 512 = 2× supersample: 4× o custo de CPU/leitura, com o grosso do ganho.
 MAX_READ_SIZE = int(os.environ.get("CAMERATOPO_MAX_READ_SIZE") or 512)
+# Teto absoluto do que a query `ss` pode pedir. O endpoint é público e o custo
+# cresce com o quadrado: sem este limite, um `ss` gigante num zoom afastado
+# viraria um render caríssimo por tile.
+SS_HARD_MAX = int(os.environ.get("CAMERATOPO_SS_HARD_MAX") or 1024)
 
 # Amostragem do percentil de declividade NA RESOLUÇÃO NATIVA (ver
 # _slope_pct_native): k×k janelas de SLOPE_WIN_PX px espalhadas pelo bbox. Ler o
@@ -254,9 +258,13 @@ def _mercator_res_m(z, lat_deg):
 
 
 def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
-                tilesize=256):
+                tilesize=256, max_read=None):
     """Renderiza um tile → bytes PNG (RGBA). Retorna None quando o tile não é
-    coberto pelo DEM (o servidor devolve um PNG transparente)."""
+    coberto pelo DEM (o servidor devolve um PNG transparente).
+
+    `max_read` (query `ss`) sobrepõe MAX_READ_SIZE: é o teto da superamostragem
+    no zoom afastado — mais px lidos = declividade mais perto do nativo (mais
+    textura, menos serrilhado) e mais CPU/rede por tile."""
     b = TMS.bounds(morecantile.Tile(x, y, z))
     lat_c = (b.bottom + b.top) / 2.0
     res256 = _mercator_res_m(z, lat_c)   # m/px de solo se lêssemos tilesize px
@@ -267,8 +275,10 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     # REAL do dado e não de uma elevação já decimada.
     native = SP_NATIVE_M if dem == "sp" else FABDEM_NATIVE_M
     native_px = tilesize * res256 / native      # células nativas ao longo do tile
+    cap = int(max_read or MAX_READ_SIZE)        # teto de superamostragem (query `ss`)
+    cap = max(MIN_READ_SIZE, min(SS_HARD_MAX, cap))
     read_size = int(round(native_px))
-    read_size = max(MIN_READ_SIZE, min(MAX_READ_SIZE, read_size))
+    read_size = max(MIN_READ_SIZE, min(cap, read_size))
 
     # Se AINDA estamos decimando de verdade (o teto cortou, então há bem mais
     # células nativas que px lidos), a reamostragem tem que ser por ÁREA: bilinear

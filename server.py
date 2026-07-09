@@ -15,6 +15,9 @@ Endpoint:
         slopeGamma         γ do realce de declividade (default 1.2).
         cycles             quantas vezes a paleta se repete na faixa (default 1).
         dem                fabdem (default) | sp (DEM de SP ~5 m).
+        ss                 teto da superamostragem no zoom afastado, em px por
+                           lado (default 512, máx 1024). Mais = declividade mais
+                           perto do nativo (mais textura), mais CPU/rede.
     GET /health            ok
 
 Sem auth (igual ao resto do projeto — restrinja na borda se precisar). Tiles são
@@ -100,8 +103,14 @@ def _resolve_params(dem):
         cycles = 1
     cycles = min(16, max(1, cycles))
 
+    # `ss`: teto da superamostragem (px lidos por lado no zoom afastado). Mais =
+    # declividade mais perto do nativo, mais caro. Clampado em render.SS_HARD_MAX.
+    ss = _fnum("ss")
+    max_read = int(ss) if ss else render.MAX_READ_SIZE
+    max_read = max(render.MIN_READ_SIZE, min(render.SS_HARD_MAX, max_read))
+
     return dict(elev_min=elev_min, elev_max=elev_max, slope_max=slope_max,
-                gamma=gamma, cycles=cycles)
+                gamma=gamma, cycles=cycles, max_read=max_read)
 
 
 def _png_response(body, etag):
@@ -194,7 +203,8 @@ def tile(z, x, y):
     # Chave de cache/ETag: z/x/y + params já resolvidos (querystring canônica).
     p = _resolve_params(dem)
     key = (f"{dem}/{z}/{x}/{y}?e={p['elev_min']:.3f},{p['elev_max']:.3f}"
-           f"&s={p['slope_max']:.6f}&g={p['gamma']:.3f}&c={p['cycles']}")
+           f"&s={p['slope_max']:.6f}&g={p['gamma']:.3f}&c={p['cycles']}"
+           f"&ss={p['max_read']}")
     etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
 
     if not (MIN_ZOOM <= z <= MAX_ZOOM):
@@ -211,6 +221,7 @@ def tile(z, x, y):
                 dem, x, y, z,
                 elev_min=p["elev_min"], elev_max=p["elev_max"],
                 slope_max=p["slope_max"], gamma=p["gamma"], cycles=p["cycles"],
+                max_read=p["max_read"],
             )
         except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
             app.logger.warning("render %s falhou: %s", key, exc)

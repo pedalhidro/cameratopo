@@ -35,6 +35,7 @@ GET /{z}/{x}/{y}.png
 | `slopeGamma` | γ do realce de declividade (1 = linear; >1 suaviza)                 | `1.2`   |
 | `cycles`     | quantas vezes a paleta se repete na faixa (contorno cíclico), 1–16  | `1`     |
 | `dem`        | `fabdem` (global ~30 m) \| `sp` (DEM de São Paulo ~5 m)             | `fabdem`|
+| `ss`         | teto da superamostragem no zoom afastado (px/lado), máx 1024        | `512`   |
 
 `auto` também é assumido quando o parâmetro é omitido ou vem vazio. Fora da
 cobertura do DEM o tile sai transparente.
