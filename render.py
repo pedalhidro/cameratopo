@@ -286,7 +286,12 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     # 5% absorve o arredondamento) ou ampliando, bilinear.
     resampling = "average" if native_px > read_size * 1.05 else RESAMPLING
 
-    read = read_dem_tile(dem, x, y, z, buffer=1, tilesize=read_size,
+    # Ampliando (read_size < tile) o buffer precisa ter 2 px: a amostragem por
+    # coordenada usa 1 vizinho, e o anel externo tem declividade com borda
+    # replicada. Reduzindo/no nativo, 1 px basta.
+    upsampling = read_size < tilesize
+    buf = 2 if upsampling else 1
+    read = read_dem_tile(dem, x, y, z, buffer=buf, tilesize=read_size,
                          resampling=resampling)
     if read is None:
         return None
@@ -296,25 +301,61 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
 
     # Resolução de solo POR PIXEL LIDO = extent / read_size (extent = tilesize*res256).
     res = res256 * (tilesize / read_size)
-    slope = compute_slope(height, mask, res, res)
-
-    # Descarta a borda de buffer (1 px de cada lado) → read_size×read_size.
-    height = height[1:-1, 1:-1]
-    mask = mask[1:-1, 1:-1]
-    slope = slope[1:-1, 1:-1]
+    slope = compute_slope(height, mask, res, res)   # no array COM buffer
 
     # Reescala os CAMPOS ESCALARES (elevação + declividade) pro tamanho do tile e
     # SÓ ENTÃO aplica a paleta. Escalares (não RGB) mantêm a paleta cíclica fiel —
-    # interpolar RGB entre hues distantes passaria pelo cinza. Ao REDUZIR, a média
-    # de área (BOX) é a mesma agregação da pirâmide do Earth Engine.
-    if read_size != tilesize:
-        fill = float(np.median(height[mask])) if mask.any() else 0.0
-        height = _resize_scalar(height, tilesize, fill)
-        slope = _resize_scalar(slope, tilesize, 0.0)
-        mask = _resize_mask(mask, tilesize)
+    # interpolar RGB entre hues distantes passaria pelo cinza.
+    if upsampling:
+        # Amostra DENTRO do array bufferizado → sem costura na emenda dos tiles.
+        fill = float(np.median(height[mask]))
+        h = np.where(np.isfinite(height), height, fill)
+        height = _bilinear_from_buffered(h, buf, read_size, tilesize)
+        slope = _bilinear_from_buffered(slope, buf, read_size, tilesize)
+        mask = _bilinear_from_buffered(mask.astype(np.float64), buf, read_size, tilesize) >= 0.5
+    else:
+        # Descarta a borda de buffer → read_size×read_size.
+        height = height[buf:-buf, buf:-buf]
+        mask = mask[buf:-buf, buf:-buf]
+        slope = slope[buf:-buf, buf:-buf]
+        if read_size != tilesize:
+            # Reduzindo: média de ÁREA (BOX) — cada pixel de saída cobre exatamente
+            # a sua área dentro do tile, então também não cria costura. É a mesma
+            # agregação da pirâmide do Earth Engine (reducer `mean`).
+            fill = float(np.median(height[mask])) if mask.any() else 0.0
+            height = _resize_scalar(height, tilesize, fill)
+            slope = _resize_scalar(slope, tilesize, 0.0)
+            mask = _resize_mask(mask, tilesize)
 
     rgba = shade(height, mask, slope, elev_min, elev_max, slope_max, gamma, cycles)
     return _png_bytes(rgba)
+
+
+def _bilinear_from_buffered(a, buf, read_size, tilesize):
+    """Amostra o array COM BUFFER ((R+2B)²) nas posições dos centros dos pixels do
+    tile → (T,T), por coordenada geográfica.
+
+    É o que evita COSTURA entre tiles no zoom-in: recortar o buffer ANTES de
+    ampliar faria a interpolação grampear na borda do array, e cada tile
+    interpolaria isolado (degrau visível na emenda). Amostrando dentro do array
+    bufferizado, os pixels da beirada enxergam os vizinhos reais do tile ao lado —
+    e como as grades de leitura de tiles vizinhos são contíguas e alinhadas, os
+    dois chegam ao MESMO valor na fronteira.
+
+    Centro do pixel de saída j ↔ índice u = B - 0.5 + (j+0.5)·R/T. Com B=2 o
+    intervalo amostrado exclui o anel externo (onde compute_slope replicou a
+    borda), então a declividade também casa entre tiles."""
+    B, R, T = buf, read_size, tilesize
+    j = np.arange(T)
+    u = B - 0.5 + (j + 0.5) * (R / T)
+    u0 = np.clip(np.floor(u).astype(np.int64), 0, a.shape[0] - 2)
+    f = u - u0
+    r0, r1 = u0, u0 + 1
+    fr, fc = f[:, None], f[None, :]
+    a00 = a[np.ix_(r0, r0)]; a01 = a[np.ix_(r0, r1)]
+    a10 = a[np.ix_(r1, r0)]; a11 = a[np.ix_(r1, r1)]
+    return (a00 * (1 - fr) * (1 - fc) + a01 * (1 - fr) * fc
+            + a10 * fr * (1 - fc) + a11 * fr * fc)
 
 
 def _rescale_filter(src, size):
