@@ -8,8 +8,14 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%E2%9B%B0%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <style>
+  /* IBM Plex Mono vendorado (sem CDN externa) */
+  @font-face { font-family:"IBM Plex Mono"; font-weight:400; font-style:normal; font-display:swap; src:url("vendor/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
+  @font-face { font-family:"IBM Plex Mono"; font-weight:500; font-style:normal; font-display:swap; src:url("vendor/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
+  @font-face { font-family:"IBM Plex Mono"; font-weight:600; font-style:normal; font-display:swap; src:url("vendor/fonts/ibm-plex-mono-600.woff2") format("woff2"); }
+  @font-face { font-family:"IBM Plex Mono"; font-weight:700; font-style:normal; font-display:swap; src:url("vendor/fonts/ibm-plex-mono-700.woff2") format("woff2"); }
+
   :root {
-    --panel-bg: rgba(255, 255, 255, 0.86);
+    --panel-bg: rgba(255, 255, 255, 0.88);
     --panel-fg: #1b2430;
     --panel-muted: #5a6675;
     --panel-line: rgba(0, 0, 0, 0.10);
@@ -22,7 +28,7 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --panel-bg: rgba(24, 28, 34, 0.84);
+      --panel-bg: rgba(24, 28, 34, 0.86);
       --panel-fg: #e8edf3;
       --panel-muted: #9aa7b6;
       --panel-line: rgba(255, 255, 255, 0.12);
@@ -34,9 +40,11 @@
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
+  body, button, input, textarea, .leaflet-container {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
   body {
-    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: var(--panel-fg);
+    font-size: 13px; line-height: 1.45; color: var(--panel-fg);
     -webkit-font-smoothing: antialiased;
   }
   #map { position: absolute; inset: 0; background: #0b0d10; }
@@ -44,7 +52,7 @@
   /* ── Painel de controles ─────────────────────────────────────────────── */
   #panel {
     position: absolute; top: 12px; right: 12px; z-index: 1000;
-    width: 320px; max-width: calc(100vw - 24px);
+    width: 324px; max-width: calc(100vw - 24px);
     max-height: calc(100vh - 24px); overflow-y: auto;
     background: var(--panel-bg);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
@@ -56,59 +64,57 @@
   #panel::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 8px; }
 
   .brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
-  .brand h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-  .brand .sub { font-size: 11px; color: var(--panel-muted); }
-  .brand .mtn { margin-left: auto; }
+  .brand h1 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
 
   .row { margin: 12px 0; }
-  .row > label, .group-title {
-    display: block; font-size: 11.5px; font-weight: 600;
-    color: var(--panel-muted); text-transform: none; margin-bottom: 6px;
+  .row > label {
+    display: block; font-size: 11px; font-weight: 600;
+    color: var(--panel-muted); margin-bottom: 6px;
   }
-  .hint { font-size: 11px; color: var(--panel-muted); margin-top: 5px; }
 
-  /* Busca */
-  .search { display: flex; gap: 6px; margin-bottom: 4px; }
+  /* Busca + minha localização (mesma linha) */
+  .search { display: flex; gap: 6px; }
   .search input {
-    flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px;
+    flex: 1; min-width: 0; padding: 8px 10px; font-size: 12px;
     color: var(--panel-fg); background: var(--field-bg);
     border: 1px solid var(--field-line); border-radius: 9px;
   }
-  .search button { flex: 0 0 auto; }
+  .search button.icon { flex: 0 0 auto; width: 40px; padding: 8px 0; font-size: 15px; }
 
   input[type="number"] {
-    width: 100%; padding: 8px 10px; font-size: 14px; color: var(--panel-fg);
+    width: 100%; padding: 8px 10px; font-size: 13px; color: var(--panel-fg);
     background: var(--field-bg); border: 1px solid var(--field-line);
     border-radius: 9px; -moz-appearance: textfield;
   }
   input[type="number"]:disabled { opacity: 0.5; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .two .fld label { display: block; font-size: 11px; color: var(--panel-muted); margin-bottom: 4px; }
+  .two .fld label { display: block; font-size: 10.5px; color: var(--panel-muted); margin-bottom: 4px; }
 
   input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
   input[type="range"]:disabled { opacity: 0.5; }
   .slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
-  .slider-head .val { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
+  .slider-head label { font-size: 11px; font-weight: 600; color: var(--panel-muted); }
+  .slider-head .val { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12.5px; }
 
-  /* Segmentado (DEM, base) */
+  /* Segmentado (DEM, base, unidade) */
   .seg { display: flex; background: var(--seg-bg); border-radius: 9px; padding: 3px; gap: 3px; }
   .seg button {
-    flex: 1; padding: 7px 6px; font-size: 12.5px; font-weight: 600;
+    flex: 1; padding: 7px 6px; font-size: 11.5px; font-weight: 600;
     border: 0; border-radius: 7px; background: transparent; color: var(--panel-fg);
     cursor: pointer;
   }
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
   .seg.seg-mini { margin: 6px 0 2px; }
-  .seg.seg-mini button { padding: 5px 6px; font-size: 11px; }
+  .seg.seg-mini button { padding: 5px 6px; font-size: 10.5px; }
 
   .check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .check input { accent-color: var(--accent); width: 16px; height: 16px; }
-  .check span { font-size: 13px; }
+  .check span { font-size: 12px; font-weight: 600; }
 
-  .btns { display: grid; gap: 7px; margin-top: 14px; }
+  .btns { display: grid; gap: 7px; }
   button.act {
     display: flex; align-items: center; justify-content: center; gap: 7px;
-    padding: 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 9px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
     color: var(--panel-fg); background: var(--field-bg);
     border: 1px solid var(--field-line); border-radius: 9px;
   }
@@ -116,26 +122,24 @@
   button.act:disabled { opacity: 0.55; cursor: default; }
   button.act:active { transform: translateY(1px); }
 
+  .url-label {
+    font-size: 10px; word-break: break-all; line-height: 1.45;
+    background: var(--seg-bg); border: 1px solid var(--panel-line);
+    border-radius: 8px; padding: 7px 9px; color: var(--panel-fg);
+    -webkit-user-select: all; user-select: all;
+  }
+  .url-label[hidden] { display: none; }
+
   hr.sep { border: 0; border-top: 1px solid var(--panel-line); margin: 14px 0 2px; }
 
-  .foot { margin-top: 14px; font-size: 10.5px; color: var(--panel-muted); line-height: 1.5; }
-  .foot a { color: var(--accent); text-decoration: none; }
-
-  /* ── Legenda / colorbar ──────────────────────────────────────────────── */
-  #legend {
-    position: absolute; left: 12px; bottom: 22px; z-index: 1000;
-    width: 232px; max-width: calc(100vw - 24px);
-    background: var(--panel-bg);
-    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-    border: 1px solid var(--panel-line); border-radius: 12px;
-    box-shadow: var(--panel-shadow); padding: 10px 12px;
-  }
+  /* ── Legenda / colorbar (dentro do painel, embaixo) ──────────────────── */
+  #legend { margin-top: 6px; }
   #legend .lt { font-size: 11px; font-weight: 600; color: var(--panel-muted); margin-bottom: 6px; }
   #colorbar { height: 12px; border-radius: 4px; border: 1px solid var(--panel-line); }
   #legend .scale { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 4px; }
-  #legend .cap { font-size: 10.5px; color: var(--panel-muted); margin-top: 5px; }
+  #legend .cap { font-size: 10px; color: var(--panel-muted); margin-top: 5px; }
 
-  /* Toggle do painel (mobile) */
+  /* Botão hamburguer (abre/fecha o painel no mobile) */
   #panel-toggle {
     position: absolute; top: 12px; right: 12px; z-index: 1001; display: none;
     width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
@@ -143,11 +147,38 @@
     border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
     font-size: 20px; color: var(--panel-fg);
   }
+
+  /* ── Modal de ajuda ──────────────────────────────────────────────────── */
+  .modal {
+    position: fixed; inset: 0; z-index: 2000; display: flex;
+    align-items: center; justify-content: center; padding: 20px;
+    background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
+  .modal[hidden] { display: none; }
+  .modal-card {
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-line); border-radius: 16px; box-shadow: var(--panel-shadow);
+    width: 100%; max-width: 540px; max-height: 85vh; overflow-y: auto; padding: 20px 22px;
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .modal-head h2 { font-size: 15px; font-weight: 700; margin: 0; }
+  #help-close {
+    border: 0; background: transparent; color: var(--panel-fg);
+    width: 34px; height: 34px; border-radius: 8px; font-size: 16px; cursor: pointer;
+  }
+  #help-close:hover { background: var(--seg-bg); }
+  .modal-body h3 { font-size: 12px; font-weight: 700; color: var(--accent); margin: 14px 0 3px; }
+  .modal-body p { font-size: 12px; color: var(--panel-muted); margin: 0 0 4px; line-height: 1.5; }
+  .modal-body code { font-size: 11px; background: var(--seg-bg); padding: 1px 4px; border-radius: 4px; }
+  .modal-body a { color: var(--accent); text-decoration: none; }
+
   .toast {
     position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
     z-index: 1200; background: rgba(20,24,30,0.94); color: #fff;
-    padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.4); opacity: 0; transition: opacity .2s; pointer-events: none;
+    padding: 9px 16px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4); opacity: 0; transition: opacity .2s;
+    pointer-events: none; max-width: 80vw; text-align: center;
   }
   .toast.show { opacity: 1; }
 
@@ -155,26 +186,23 @@
     #panel { top: 64px; right: 12px; left: 12px; width: auto; display: none; }
     #panel.open { display: block; }
     #panel-toggle { display: block; }
-    #legend { width: 180px; bottom: 12px; }
   }
 </style>
 </head>
 <body>
 <div id="map"></div>
 
-<button id="panel-toggle" aria-label="Abrir/fechar controles" title="Controles">⚙️</button>
+<button id="panel-toggle" aria-label="Abrir/fechar controles" title="Menu">☰</button>
 
 <aside id="panel" aria-label="Controles da Câmera Topográfica">
-  <div class="brand">
-    <h1>Câmera Topográfica</h1>
-  </div>
+  <div class="brand"><h1>Câmera Topográfica</h1></div>
 
   <div class="row">
     <div class="search">
       <input id="q" type="search" placeholder="Buscar lugar…" autocomplete="off" aria-label="Buscar lugar">
-      <button class="act" id="q-go" title="Buscar">🔍</button>
+      <button class="act icon" id="q-go" title="Buscar" aria-label="Buscar">🔍</button>
+      <button class="act icon" id="q-loc" title="Minha localização" aria-label="Minha localização">📍</button>
     </div>
-    <div class="hint" id="q-msg" hidden></div>
   </div>
 
   <div class="row">
@@ -183,14 +211,12 @@
       <button data-dem="fabdem" aria-pressed="true">FABDEM · global</button>
       <button data-dem="sp" aria-pressed="false">SP · 5 m</button>
     </div>
-    <div class="hint" id="dem-hint">FABDEM (~30 m), cobertura global.</div>
   </div>
 
   <hr class="sep">
 
   <div class="row">
     <label class="check"><input type="checkbox" id="auto" checked><span>Faixa automática (segue a tela)</span></label>
-    <div class="hint">Ligado: mín/máx/declive são recalculados pela porção visível a cada navegação (valores esmaecidos abaixo). Desligue — ou “Fixar” — para travar e editar à mão.</div>
   </div>
 
   <div class="row two">
@@ -199,30 +225,28 @@
   </div>
 
   <div class="row">
-    <div class="slider-head"><label for="slope" style="margin:0">Declive máximo</label><span class="val" id="slope-val">46 %</span></div>
+    <div class="slider-head"><label for="slope">Declive máximo</label><span class="val" id="slope-val">46 %</span></div>
     <div class="seg seg-mini" id="seg-slopeunit" role="group" aria-label="Unidade do declive">
       <button data-unit="pct" aria-pressed="true">gradiente %</button>
       <button data-unit="deg" aria-pressed="false">graus °</button>
     </div>
     <input type="range" id="slope" min="1" max="120" step="1" value="46">
-    <div class="hint">Declividade que satura em preto — realça a topografia.</div>
   </div>
 
   <hr class="sep">
 
   <div class="row">
-    <div class="slider-head"><label for="gamma" style="margin:0">Correção gama do declive</label><span class="val" id="gamma-val">1.2</span></div>
-    <input type="range" id="gamma" min="0.2" max="5" step="0.1" value="1.2">
+    <div class="slider-head"><label for="gamma">Correção gama do declive</label><span class="val" id="gamma-val">1.00</span></div>
+    <input type="range" id="gamma" min="-20" max="20" step="1" value="0">
   </div>
 
   <div class="row">
-    <div class="slider-head"><label for="cycles" style="margin:0">Ciclos na paleta de elevação</label><span class="val" id="cycles-val">1</span></div>
+    <div class="slider-head"><label for="cycles">Ciclos na paleta de elevação</label><span class="val" id="cycles-val">1</span></div>
     <input type="range" id="cycles" min="1" max="16" step="1" value="1">
-    <div class="hint">Repete a paleta cíclica N vezes — vira “curvas de nível” coloridas.</div>
   </div>
 
   <div class="row">
-    <div class="slider-head"><label for="opacity" style="margin:0">Opacidade do relevo</label><span class="val" id="opacity-val">90 %</span></div>
+    <div class="slider-head"><label for="opacity">Opacidade do relevo</label><span class="val" id="opacity-val">90 %</span></div>
     <input type="range" id="opacity" min="0" max="100" step="1" value="90">
   </div>
 
@@ -237,23 +261,77 @@
   </div>
 
   <div class="btns">
-    <button class="act primary" id="btn-estimate">📌 Fixar valores desta vista</button>
     <button class="act" id="btn-copy-tiles">⧉ Copiar URL de tiles (XYZ)</button>
+    <div id="tiles-url" class="url-label" hidden></div>
     <button class="act" id="btn-copy-link">🔗 Copiar link desta vista</button>
+    <div id="link-url" class="url-label" hidden></div>
   </div>
 
-  <div class="foot">
-    Relevo: <b>FABDEM</b> / DEM-SP · paleta <b>cmocean.phase</b> × realce de declividade.
-    Tiles: <code>/{z}/{x}/{y}.png</code>. ·
-    <a href="https://amora.pedalhidrografi.co" target="_blank" rel="noopener">amora ↗</a>
+  <hr class="sep">
+
+  <div id="legend">
+    <div class="lt">Elevação</div>
+    <div id="colorbar"></div>
+    <div class="scale"><span id="lg-min">auto</span><span id="lg-max">auto</span></div>
+    <div class="cap">escuro = mais íngreme</div>
+  </div>
+
+  <div class="btns" style="margin-top:14px">
+    <button class="act" id="btn-help">❔ Ajuda</button>
   </div>
 </aside>
 
-<div id="legend" aria-hidden="true">
-  <div class="lt">Elevação</div>
-  <div id="colorbar"></div>
-  <div class="scale"><span id="lg-min">auto</span><span id="lg-max">auto</span></div>
-  <div class="cap">escuro = mais íngreme</div>
+<div id="help-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-label="Ajuda">
+    <div class="modal-head"><h2>Câmera Topográfica — ajuda</h2><button id="help-close" aria-label="Fechar">✕</button></div>
+    <div class="modal-body">
+      <p>Relevo de São Paulo: a <b>elevação</b> vira cor pela paleta cíclica
+        <i>cmocean.phase</i>, e a <b>declividade</b> escurece a cor
+        (escuro = mais íngreme). Tudo é renderizado no servidor como tiles XYZ.</p>
+
+      <h3>Buscar 🔍 / Minha localização 📍</h3>
+      <p>Buscar leva a um lugar (via OpenStreetMap/Nominatim). 📍 centra o mapa na
+        sua posição (o navegador pede permissão).</p>
+
+      <h3>Modelo de elevação (DEM)</h3>
+      <p><b>FABDEM</b> (~30 m) tem cobertura global. <b>SP · 5 m</b> é o DEM de São
+        Paulo, mais detalhado, mas só cobre a região metropolitana.</p>
+
+      <h3>Faixa automática (segue a tela)</h3>
+      <p>Ligada: elevação mín./máx. e declive máximo são recalculados pela porção
+        visível a cada navegação (percentis p5–p80 da elevação, p98 da
+        declividade) e mostrados esmaecidos. Desligue para travar e editar à mão.</p>
+
+      <h3>Elevação mín./máx. (m)</h3>
+      <p>Faixa de elevação mapeada do começo ao fim da paleta. Estreitar a faixa
+        aumenta o contraste de cor.</p>
+
+      <h3>Declive máximo (gradiente % ou graus °)</h3>
+      <p>Declividade que satura em preto — realça a topografia. O toggle só troca a
+        unidade de exibição (o cálculo é o mesmo).</p>
+
+      <h3>Correção gama do declive</h3>
+      <p>Escala log₂: <code>1/16</code> … <code>1.0</code> (meio) … <code>16</code>.
+        &gt;1 suaviza o escurecimento das encostas; &lt;1 endurece.</p>
+
+      <h3>Ciclos na paleta de elevação</h3>
+      <p>Repete a paleta cíclica N vezes ao longo da faixa — vira “curvas de nível”
+        coloridas.</p>
+
+      <h3>Opacidade do relevo · Mapa base</h3>
+      <p>Transparência da camada de relevo sobre o mapa (OpenStreetMap) ou o
+        satélite (Esri).</p>
+
+      <h3>Copiar URL de tiles (XYZ) · Copiar link desta vista</h3>
+      <p>A URL de tiles (<code>/{z}/{x}/{y}.png?…</code>) serve pra embutir o relevo
+        em qualquer cliente de mapa. O link desta vista guarda todo o estado no
+        hash da URL, então uma configuração é compartilhável.</p>
+
+      <p style="margin-top:14px">Relevo: <b>FABDEM</b> / DEM-SP · paleta
+        <b>cmocean.phase</b> × realce de declividade ·
+        <a href="https://amora.pedalhidrografi.co" target="_blank" rel="noopener">Pedal Hidrográfico ↗</a></p>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -272,8 +350,8 @@ const CMO_PHASE = [
 const DEFAULTS = {
   center: [-23.55, -46.63], zoom: 13,
   dem: "fabdem", auto: true,
-  emin: 700, emax: 1200, slope: 46,   // homenagem aos defaults do app do EE
-  gamma: 1.2, cycles: 1, opacity: 90,
+  emin: 700, emax: 1200, slope: 46,
+  gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
   base: "osm", slopeUnit: "pct",
 };
 
@@ -418,9 +496,8 @@ function setReliefOpacity(frac) {
 // Em modo auto, a faixa é recalculada pela porção visível (via /stats) e
 // CONGELADA em números explícitos na querystring dos tiles — adaptável à tela E
 // sem costura (mesmos números por toda a grade). Valores arredondados (elev→5 m,
-// declive→1 %) estabilizam o cache: pans pequenos caem nos mesmos números e
-// reusam os tiles. Debounce no moveend evita recomputar durante o arrasto.
-// (autoResolved / autoTimer / lastAutoKey são declarados lá em cima — TDZ.)
+// declive→1 %) estabilizam o cache. Debounce no moveend evita recomputar durante
+// o arrasto. Token de sequência descarta respostas fora de ordem.
 function scheduleAutoEstimate() {
   if (!P.auto) return;
   clearTimeout(autoTimer);
@@ -438,8 +515,7 @@ async function runAutoEstimate() {
     const bbox = `${w.toFixed(5)},${s.toFixed(5)},${e.toFixed(5)},${n.toFixed(5)}`;
     const r = await fetch(`/stats?bbox=${bbox}&dem=${P.dem}`);
     const j = await r.json();
-    // desligou o auto OU já houve outra viewport/DEM → ignora esta resposta
-    // (senão uma resposta lenta/fora de ordem normalizaria pela vista errada).
+    // desligou o auto OU já houve outra viewport/DEM → ignora esta resposta.
     if (!P.auto || myTok !== autoReqToken) return;
     if (j.ok) {
       const emin = Math.round(j.elevMin / 5) * 5;
@@ -450,13 +526,12 @@ async function runAutoEstimate() {
       syncInputs(); updateLegend();
       if (changed) refreshTiles();
     } else {
-      // sem cobertura / viewport grande demais → volta pro `auto` do servidor
       if (autoResolved) { autoResolved = false; refreshTiles(); }
       syncInputs(); updateLegend();
     }
   } catch (err) {
-    if (myTok !== autoReqToken) return;             // superada: não mexe no estado
-    lastAutoKey = "";                               // deixa tentar de novo no próximo move
+    if (myTok !== autoReqToken) return;
+    lastAutoKey = "";
     if (autoResolved) { autoResolved = false; refreshTiles(); }
     syncInputs(); updateLegend();
   }
@@ -484,7 +559,7 @@ const toastEl = document.getElementById("toast");
 let toastTimer = null;
 function toast(msg) {
   toastEl.textContent = msg; toastEl.classList.add("show");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1800);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
 }
 
 // ── Ligação dos controles ────────────────────────────────────────────────────
@@ -492,8 +567,7 @@ const $ = (id) => document.getElementById(id);
 
 // Declive: o estado (P.slope) é sempre GRADIENTE % (fonte da verdade; a URL de
 // tiles usa slopeMax = P.slope/100 em m/m). A unidade só muda a EXIBIÇÃO e a
-// escala do slider: gradiente % (tan·100) ou graus (o ângulo, atan). Assim o
-// toggle não mexe nos tiles.
+// escala do slider: gradiente % (tan·100) ou graus (o ângulo, atan).
 const SLOPE_MAX_PCT = 120;   // teto do gradiente % (≈ 50°)
 const SLOPE_UNITS = {
   pct: { label: "%", min: 1, max: SLOPE_MAX_PCT, step: 1,
@@ -514,8 +588,15 @@ function syncSlopeWidget() {
     b.setAttribute("aria-pressed", String(b.dataset.unit === P.slopeUnit));
 }
 
-// Reflete o estado nos widgets. Em auto ainda não resolvido, os campos ficam
-// vazios com placeholder "auto"; resolvido, mostram os números (esmaecidos).
+// Gama em escala log2: slider i∈[-20,20] (passo 2^(i/5)); i=0 → 1.0 (meio),
+// i=-20 → 1/16, i=20 → 16. P.gamma guarda o valor real (vai pra slopeGamma).
+const GAMMA_MIN = -20, GAMMA_MAX = 20;
+const gammaToStep = (g) => Math.max(GAMMA_MIN, Math.min(GAMMA_MAX, Math.round(5 * Math.log2(g > 0 ? g : 1))));
+const stepToGamma = (i) => Math.pow(2, i / 5);
+const fmtGamma = (g) => g < 0.995 ? g.toFixed(3) : (g >= 9.995 ? g.toFixed(1) : g.toFixed(2));
+
+// Reflete o estado nos widgets. Em auto ainda não resolvido, os campos de
+// elevação ficam vazios com placeholder "auto"; resolvido, mostram os números.
 function syncInputs() {
   const showNums = !P.auto || autoResolved;
   $("emin").value = showNums ? Math.round(P.emin) : "";
@@ -524,14 +605,11 @@ function syncInputs() {
   $("emin").disabled = $("emax").disabled = P.auto;
   $("auto").checked = P.auto;
   syncSlopeWidget();
-  $("gamma").value = P.gamma; $("gamma-val").textContent = P.gamma.toFixed(1);
+  $("gamma").value = gammaToStep(P.gamma); $("gamma-val").textContent = fmtGamma(P.gamma);
   $("cycles").value = P.cycles; $("cycles-val").textContent = P.cycles;
   $("opacity").value = P.opacity; $("opacity-val").textContent = `${P.opacity} %`;
   for (const b of $("seg-dem").children) b.setAttribute("aria-pressed", String(b.dataset.dem === P.dem));
   for (const b of $("seg-base").children) b.setAttribute("aria-pressed", String(b.dataset.base === P.base));
-  $("dem-hint").textContent = P.dem === "sp"
-    ? "DEM de São Paulo (~5 m) — só cobre a região metropolitana."
-    : "FABDEM (~30 m), cobertura global.";
 }
 
 // auto (segue a tela)
@@ -566,9 +644,10 @@ $("seg-slopeunit").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b || b.dataset.unit === P.slopeUnit) return;
   P.slopeUnit = b.dataset.unit; syncSlopeWidget(); writeHash();
 });
-// gama
+// gama (escala log2)
 $("gamma").addEventListener("input", (e) => {
-  P.gamma = parseFloat(e.target.value); $("gamma-val").textContent = P.gamma.toFixed(1);
+  P.gamma = stepToGamma(parseInt(e.target.value, 10));
+  $("gamma-val").textContent = fmtGamma(P.gamma);
   refreshTiles(); writeHash();
 });
 // ciclos
@@ -599,61 +678,71 @@ $("seg-base").addEventListener("click", (e) => {
   P.base = b.dataset.base; applyBase(); syncInputs(); writeHash();
 });
 
-// ── Fixar valores desta vista: estima e passa pro modo manual (editável) ─────
-$("btn-estimate").addEventListener("click", async () => {
-  const btn = $("btn-estimate"); const label = btn.textContent;
-  btn.disabled = true; btn.textContent = "⏳ Estimando…";
-  try {
-    const b = map.getBounds();
-    const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
-    const r = await fetch(`/stats?bbox=${bbox}&dem=${P.dem}`);
-    const j = await r.json();
-    if (!j.ok) { toast(j.error || "Não deu para estimar aqui"); return; }
-    P.auto = false;
-    P.emin = Math.round(j.elevMin / 5) * 5;
-    P.emax = Math.max(P.emin + 5, Math.round(j.elevMax / 5) * 5);
-    P.slope = Math.max(1, Math.min(SLOPE_MAX_PCT, Math.round(j.slopeMax * 100)));
-    syncInputs(); updateLegend(); refreshTiles(); writeHash();
-    toast("Valores fixados — edite à vontade");
-  } catch (err) {
-    toast("Falha ao estimar (servidor offline?)");
-  } finally {
-    btn.disabled = false; btn.textContent = label;
-  }
-});
-
 // ── Copiar ───────────────────────────────────────────────────────────────────
 async function copy(text, msg) {
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
     else { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
     toast(msg);
-  } catch (e) { toast("Não consegui copiar — copie da barra de endereço"); }
+  } catch (e) { toast("Não consegui copiar — selecione o texto abaixo"); }
 }
-$("btn-copy-tiles").addEventListener("click", () => copy(tileUrl(true), "URL de tiles copiada"));
-$("btn-copy-link").addEventListener("click", () => { commitHash(); copy(location.href, "Link desta vista copiado"); });
+$("btn-copy-tiles").addEventListener("click", () => {
+  const u = tileUrl(true);
+  const label = $("tiles-url");
+  label.textContent = u; label.hidden = false;     // mostra a URL numa label embaixo
+  copy(u, "URL de tiles copiada");
+});
+$("btn-copy-link").addEventListener("click", () => {
+  commitHash();                                     // grava extent + config no hash
+  const label = $("link-url");
+  label.textContent = location.href; label.hidden = false;   // mostra o link numa label embaixo
+  copy(location.href, "Link desta vista copiado");
+});
 
 // ── Busca (Nominatim / OSM) ──────────────────────────────────────────────────
 async function search() {
-  const q = $("q").value.trim(); const msg = $("q-msg");
+  const q = $("q").value.trim();
   if (!q) return;
-  msg.hidden = false; msg.textContent = "Buscando…";
+  toast("Buscando…");
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`,
       { headers: { "Accept": "application/json" } });
     const j = await r.json();
-    if (!j.length) { msg.textContent = "Nada encontrado."; return; }
+    if (!j.length) { toast("Nada encontrado."); return; }
     const hit = j[0];
-    msg.textContent = hit.display_name;   // textContent → sem XSS
     const bb = hit.boundingbox;
     if (bb && bb.length === 4) map.fitBounds([[+bb[0], +bb[2]], [+bb[1], +bb[3]]], { maxZoom: 15 });
     else map.setView([+hit.lat, +hit.lon], 14);
-  } catch (e) { msg.textContent = "Busca indisponível."; }
+    toast(hit.display_name);
+  } catch (e) { toast("Busca indisponível."); }
 }
 $("q-go").addEventListener("click", search);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); search(); } });
 
-// ── Toggle do painel (mobile) ────────────────────────────────────────────────
+// ── Minha localização ────────────────────────────────────────────────────────
+let userMarker = null, userAccuracy = null;
+$("q-loc").addEventListener("click", () => {
+  toast("Localizando…");
+  map.locate({ setView: true, maxZoom: 16, enableHighAccuracy: true, timeout: 12000 });
+});
+map.on("locationfound", (e) => {
+  if (userMarker) userMarker.remove();
+  if (userAccuracy) userAccuracy.remove();
+  userAccuracy = L.circle(e.latlng, { radius: e.accuracy, color: "#c0417d", weight: 1, opacity: 0.5, fillOpacity: 0.08 }).addTo(map);
+  userMarker = L.circleMarker(e.latlng, { radius: 7, color: "#fff", weight: 2, fillColor: "#c0417d", fillOpacity: 1 }).addTo(map);
+});
+map.on("locationerror", () => toast("Não consegui obter sua localização"));
+
+// ── Modal de ajuda ───────────────────────────────────────────────────────────
+const helpModal = $("help-modal");
+function openHelp() { helpModal.hidden = false; }
+function closeHelp() { helpModal.hidden = true; }
+$("btn-help").addEventListener("click", openHelp);
+$("help-close").addEventListener("click", closeHelp);
+helpModal.addEventListener("click", (e) => { if (e.target === helpModal) closeHelp(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !helpModal.hidden) closeHelp(); });
+
+// ── Toggle do painel (hamburguer, mobile) ────────────────────────────────────
 $("panel-toggle").addEventListener("click", () => $("panel").classList.toggle("open"));
 
 // ── Boot ─────────────────────────────────────────────────────────────────────

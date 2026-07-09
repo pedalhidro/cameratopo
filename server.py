@@ -89,7 +89,7 @@ def _resolve_params(dem):
         elev_max = elev_min + 1.0
 
     gamma = _fnum("slopeGamma") or 1.2
-    gamma = min(5.0, max(0.05, gamma))
+    gamma = min(16.0, max(0.0625, gamma))   # UI usa escala log2: 1/16 … 16
     slope_max = max(1e-9, slope_max)
 
     cyc = request.args.get("cycles")
