@@ -31,7 +31,7 @@ GET /{z}/{x}/{y}.png
 |--------------|--------------------------------------------------------------------|---------|
 | `elevMin`    | elevação (m) mapeada pro início da paleta. `auto` = p5 da RMSP      | `auto`  |
 | `elevMax`    | elevação (m) mapeada pro fim da paleta. `auto` = p80 da RMSP        | `auto`  |
-| `slopeMax`   | declividade (m/m) que satura em preto. `auto` = p98 da declividade  | `auto`  |
+| `slopeMax`   | declividade (m/m) que satura em preto. `auto` = p98 da decliv. nativa| `auto` |
 | `slopeGamma` | γ do realce de declividade (1 = linear; >1 suaviza)                 | `1.2`   |
 | `cycles`     | quantas vezes a paleta se repete na faixa (contorno cíclico), 1–16  | `1`     |
 | `dem`        | `fabdem` (global ~30 m) \| `sp` (DEM de São Paulo ~5 m)             | `fabdem`|
@@ -45,15 +45,25 @@ GET /health   → {"ok": true}
 
 ## Reamostragem, zoom e custo
 
-- **Reamostragem `bilinear`** na leitura do DEM (em vez do `nearest` default do
-  rio-tiler) — relevo e declividade suaves.
-- **Lê/computa sempre ~na resolução nativa do DEM.** Cada tile é lido com ~1
-  pixel por célula nativa (~30 m FABDEM, ~5 m SP), a declividade é computada
-  nesse grid e só então o RGBA é reampliado pro tamanho do tile. É o que evita a
-  **grade** que aparecia ao ampliar além do nativo (a declividade de uma
-  superfície interpolada é constante por célula → degraus). De quebra poupa
-  CPU/memória. Knobs: `CAMERATOPO_FABDEM_NATIVE_M` (30), `CAMERATOPO_SP_NATIVE_M`
-  (5), `CAMERATOPO_MIN_READ_SIZE` (8).
+- **A declividade é SEMPRE derivada perto da resolução nativa do DEM** (~30 m
+  FABDEM, ~5 m SP) e só então o campo é reescalado pro tile. É o mesmo modelo do
+  app de Earth Engine (`setDefaultProjection(nativo)` + `ee.Terrain.slope` +
+  pirâmide com reducer `mean`), e resolve os dois artefatos:
+  - **Zoom-in** além do nativo: ler 256 px só interpolaria, e a declividade de
+    uma superfície interpolada é constante por célula → **grade**. Lê ~1 px por
+    célula nativa e reamplia (bilinear).
+  - **Zoom-out**: um tile de z11 cobre ~600 células nativas; decimar a elevação
+    pra 256 px ANTES de derivar a declividade serrilhava (moiré/degraus) e apagava
+    a textura fina. Agora **superamostra** até `MAX_READ_SIZE`, lê com
+    reamostragem por **área (`average`)** e reduz o campo por **média (BOX)**.
+  - Knobs: `CAMERATOPO_MAX_READ_SIZE` (512, = 2× supersample),
+    `CAMERATOPO_MIN_READ_SIZE` (8), `CAMERATOPO_FABDEM_NATIVE_M` (30),
+    `CAMERATOPO_SP_NATIVE_M` (5).
+- **`slopeMax` automático sai da declividade NATIVA.** A declividade depende da
+  escala: tirar o p98 de um DEM decimado (a leitura de elevação do `/stats`, ~217
+  m/px numa viewport de z11) subestimava ~2× → tudo saturava em preto e o ruído
+  das áreas planas virava grade. O `/stats` amostra `CAMERATOPO_SLOPE_WINDOWS`²
+  (2×2) janelas nativas de `CAMERATOPO_SLOPE_WIN_PX` (384) px, em paralelo.
 - **Sem restrição de zoom** (`CAMERATOPO_MIN_ZOOM`=0, `MAX_ZOOM`=24). O custo é
   contido não por um piso de zoom, mas pela **guarda do mosaico FABDEM**: um tile
   cujo span passa de `CAMERATOPO_MOSAIC_MAX_SPAN` (6°) ou que precisaria de mais

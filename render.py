@@ -22,6 +22,7 @@ import math
 import os
 import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from PIL import Image
@@ -62,6 +63,22 @@ SP_NATIVE_M = float(os.environ.get("CAMERATOPO_SP_NATIVE_M") or 5.0)
 # é o que evita reintroduzir a grade no zoom extremo — se o piso forçasse ler
 # MAIS FINO que o nativo, a declividade voltaria a ver a interpolação por célula.
 MIN_READ_SIZE = int(os.environ.get("CAMERATOPO_MIN_READ_SIZE") or 8)
+
+# Teto do grid de leitura = SUPERAMOSTRAGEM no zoom afastado. Um tile de z11 cobre
+# ~600 células nativas; ler só 256 obrigava a decimar a elevação ANTES de derivar
+# a declividade, o que serrilha (moiré/degraus) e apaga a textura fina. Lendo até
+# MAX_READ_SIZE px, a declividade é computada perto do nativo e só então o campo é
+# reduzido por MÉDIA de área pro tile — é o que o Earth Engine faz
+# (`setDefaultProjection(nativo)` + `ee.Terrain.slope` + pirâmide com reducer mean).
+# 512 = 2× supersample: 4× o custo de CPU/leitura, com o grosso do ganho.
+MAX_READ_SIZE = int(os.environ.get("CAMERATOPO_MAX_READ_SIZE") or 512)
+
+# Amostragem do percentil de declividade NA RESOLUÇÃO NATIVA (ver
+# _slope_pct_native): k×k janelas de SLOPE_WIN_PX px espalhadas pelo bbox. Ler o
+# bbox inteiro no nativo seriam milhões de px; 2×2 janelas de 384 px bastam pra um
+# p98 estável e mantêm o /stats rápido (é chamado a cada pan no modo auto).
+SLOPE_WINDOWS = int(os.environ.get("CAMERATOPO_SLOPE_WINDOWS") or 2)
+SLOPE_WIN_PX = int(os.environ.get("CAMERATOPO_SLOPE_WIN_PX") or 384)
 
 # ── Guarda do mosaico FABDEM (1°×1°) ────────────────────────────────────────
 # Sem teto de zoom, um tile muito afastado abriria dezenas/centenas de COGs 1°
@@ -113,15 +130,19 @@ def _asset_tile(asset, x, y, z, **kwargs):
         raise TileOutsideBounds(str(exc)) from exc
 
 
-def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256):
+def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
     """Lê o tile (z/x/y) do DEM em Web-Mercator com uma borda de `buffer` px pra
     declividade ter vizinhos nas beiradas. Retorna (height, mask) em float64 /
-    bool com shape (tilesize+2*buffer,)*2, ou None se nada cobrir o tile."""
+    bool com shape (tilesize+2*buffer,)*2, ou None se nada cobrir o tile.
+
+    `resampling` (default RESAMPLING=bilinear): quem chama passa `average` quando
+    a leitura DECIMA a fonte — bilinear pula pixels e serrilha."""
+    resampling = resampling or RESAMPLING
     try:
         if dem == "sp":
             with Reader(SAMPA_DEM_URL) as r:
                 img = r.tile(x, y, z, tilesize=tilesize, buffer=buffer,
-                             resampling_method=RESAMPLING)
+                             resampling_method=resampling)
         else:
             b = TMS.bounds(morecantile.Tile(x, y, z))
             # Guarda: mosaico 1°×1° não serve zoom muito afastado (abriria COGs
@@ -134,7 +155,7 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256):
                 return None
             img, _ = mosaic_reader(
                 assets, _asset_tile, x, y, z,
-                tilesize=tilesize, buffer=buffer, resampling_method=RESAMPLING,
+                tilesize=tilesize, buffer=buffer, resampling_method=resampling,
                 allowed_exceptions=(TileOutsideBounds,),
             )
     except (TileOutsideBounds, EmptyMosaicError):
@@ -240,14 +261,23 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     lat_c = (b.bottom + b.top) / 2.0
     res256 = _mercator_res_m(z, lat_c)   # m/px de solo se lêssemos tilesize px
 
-    # Grid de leitura ~1 px por célula nativa: nunca MAIS FINO que o nativo (isso
-    # só interpolaria e traria a grade de volta no zoom-in), nunca mais que o
-    # tile. Assim a declividade é sempre computada na escala real do dado.
+    # Grid de leitura ~1 px por célula nativa: nunca MAIS FINO que o nativo (só
+    # interpolaria e traria a grade de volta no zoom-in) e — no zoom afastado —
+    # até MAX_READ_SIZE px (superamostragem), pra a declividade sair da escala
+    # REAL do dado e não de uma elevação já decimada.
     native = SP_NATIVE_M if dem == "sp" else FABDEM_NATIVE_M
-    read_size = int(round(tilesize * res256 / native))
-    read_size = max(MIN_READ_SIZE, min(tilesize, read_size))
+    native_px = tilesize * res256 / native      # células nativas ao longo do tile
+    read_size = int(round(native_px))
+    read_size = max(MIN_READ_SIZE, min(MAX_READ_SIZE, read_size))
 
-    read = read_dem_tile(dem, x, y, z, buffer=1, tilesize=read_size)
+    # Se AINDA estamos decimando de verdade (o teto cortou, então há bem mais
+    # células nativas que px lidos), a reamostragem tem que ser por ÁREA: bilinear
+    # pula pixels da fonte e serrilha (moiré/degraus). Perto do nativo (a folga de
+    # 5% absorve o arredondamento) ou ampliando, bilinear.
+    resampling = "average" if native_px > read_size * 1.05 else RESAMPLING
+
+    read = read_dem_tile(dem, x, y, z, buffer=1, tilesize=read_size,
+                         resampling=resampling)
     if read is None:
         return None
     height, mask = read
@@ -263,11 +293,10 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     mask = mask[1:-1, 1:-1]
     slope = slope[1:-1, 1:-1]
 
-    # Zoom além do nativo (read_size < tile): reamplia os CAMPOS ESCALARES
-    # (elevação + declividade) pro tamanho do tile e SÓ ENTÃO aplica a paleta.
-    # Reampliar os escalares (não o RGB) mantém a paleta cíclica fiel — interpolar
-    # RGB entre hues distantes passaria pelo cinza — e a declividade, calculada no
-    # grid nativo, sobe lisa (sem a grade das células do DEM).
+    # Reescala os CAMPOS ESCALARES (elevação + declividade) pro tamanho do tile e
+    # SÓ ENTÃO aplica a paleta. Escalares (não RGB) mantêm a paleta cíclica fiel —
+    # interpolar RGB entre hues distantes passaria pelo cinza. Ao REDUZIR, a média
+    # de área (BOX) é a mesma agregação da pirâmide do Earth Engine.
     if read_size != tilesize:
         fill = float(np.median(height[mask])) if mask.any() else 0.0
         height = _resize_scalar(height, tilesize, fill)
@@ -278,19 +307,25 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     return _png_bytes(rgba)
 
 
+def _rescale_filter(src, size):
+    """BOX (média de área) ao REDUZIR — antisserrilhado, é a agregação `mean` da
+    pirâmide do GEE. BILINEAR ao AMPLIAR."""
+    return Image.BOX if size < src else Image.BILINEAR
+
+
 def _resize_scalar(field, size, fill):
-    """Reamplia um campo escalar (H,W) float pra size×size (bilinear). nodata
-    (nan) vira `fill` antes, pra não propagar nan na interpolação — o alfa final
-    vem da máscara reampliada à parte."""
+    """Reescala um campo escalar (H,W) float pra size×size. nodata (nan) vira
+    `fill` antes, pra não propagar nan na interpolação — o alfa final vem da
+    máscara reescalada à parte."""
     a = np.where(np.isfinite(field), field, fill).astype(np.float32)
-    img = Image.fromarray(a, mode="F").resize((size, size), Image.BILINEAR)
+    img = Image.fromarray(a, mode="F").resize((size, size), _rescale_filter(a.shape[0], size))
     return np.asarray(img, dtype=np.float64)
 
 
 def _resize_mask(mask, size):
-    """Reamplia a máscara (bool) pra size×size; ≥0.5 = coberto."""
+    """Reescala a máscara (bool) pra size×size; ≥0.5 = coberto."""
     m = mask.astype(np.float32)
-    img = Image.fromarray(m, mode="F").resize((size, size), Image.BILINEAR)
+    img = Image.fromarray(m, mode="F").resize((size, size), _rescale_filter(m.shape[0], size))
     return np.asarray(img) >= 0.5
 
 
@@ -353,36 +388,96 @@ def _read_dem_part(dem, bbox, max_size=512):
     return height, mask
 
 
-def stats_for_bbox(dem, bbox):
-    """{elevMin(p5), elevMax(p80), slopeMax(p98 da declividade)} sobre um bbox
-    geográfico arbitrário (oeste, sul, leste, norte, em graus). Lê o DEM
-    decimado (~512 px), computa declividade e devolve os percentis — ou None se
-    a leitura falhar / o bbox não tiver cobertura. NÃO cacheia (o bbox é livre).
+def _slope_pct_native(dem, bbox, pct=98.0):
+    """p{pct} da declividade calculada na resolução NATIVA do DEM.
 
-    É a mesma matemática que o modo `auto` usa; o modo "auto segue a tela" (e o
-    botão "Fixar valores desta vista") da UI chama isto pela viewport corrente e
-    congela os números explícitos na querystring, então continua uniforme (sem
-    costura) por toda a grade — só que adaptado ao que está na tela."""
+    A declividade DEPENDE DA ESCALA: derivá-la de um DEM já decimado (como a
+    leitura de elevação faz, ~217 m/px numa viewport de z11) subestima o valor em
+    ~2×, enquanto o render deriva a declividade perto do nativo. O resultado era
+    um slopeMax pequeno demais → tudo saturava em preto e o ruído de declividade
+    das áreas planas virava "grade". O Earth Engine tira o percentil da
+    declividade NATIVA (`ee.Terrain.slope` sobre a projeção nativa); é o que
+    fazemos aqui, amostrando janelas nativas em vez de ler o bbox inteiro (que
+    seriam milhões de pixels). Devolve None se nada puder ser lido."""
+    native = SP_NATIVE_M if dem == "sp" else FABDEM_NATIVE_M
+    w, s, e, n = bbox
+    lat_c = (s + n) / 2.0
+    mx = 111320.0 * math.cos(math.radians(lat_c))
+    px_w = (e - w) * mx / native
+    px_h = (n - s) * 111320.0 / native
+
+    if max(px_w, px_h) <= SLOPE_WIN_PX * 1.5:
+        wins = [bbox]                       # bbox pequeno: lê inteiro, já é nativo
+    else:                                   # grande: amostra k×k janelas nativas
+        k = max(1, SLOPE_WINDOWS)
+        dw, dh = SLOPE_WIN_PX * native / mx, SLOPE_WIN_PX * native / 111320.0
+        wins = [(w + (e - w) * (i + 0.5) / k - dw / 2,
+                 s + (n - s) * (j + 0.5) / k - dh / 2,
+                 w + (e - w) * (i + 0.5) / k + dw / 2,
+                 s + (n - s) * (j + 0.5) / k + dh / 2)
+                for i in range(k) for j in range(k)]
+
+    def _win_slope(wb):
+        r = _read_dem_part(dem, wb, max_size=SLOPE_WIN_PX)
+        if r is None:
+            return None
+        h, m = r
+        if not m.any():
+            return None
+        H, W = h.shape
+        lc = (wb[1] + wb[3]) / 2.0
+        rx = ((wb[2] - wb[0]) / W) * 111320.0 * math.cos(math.radians(lc))
+        ry = ((wb[3] - wb[1]) / H) * 111320.0
+        return compute_slope(h, m, rx, ry)[m]
+
+    # As janelas são I/O de COG remoto (o GIL é liberado): lê em paralelo, senão
+    # o /stats — chamado a cada pan no modo auto — ficaria lento demais.
+    if len(wins) == 1:
+        vals = [v for v in (_win_slope(wins[0]),) if v is not None]
+    else:
+        with ThreadPoolExecutor(max_workers=min(8, len(wins))) as ex:
+            vals = [v for v in ex.map(_win_slope, wins) if v is not None]
+    if not vals:
+        return None
+    return max(1e-9, float(np.percentile(np.concatenate(vals), pct)))
+
+
+def stats_for_bbox(dem, bbox):
+    """{elevMin(p5), elevMax(p80), slopeMax(p98 da declividade NATIVA)} sobre um
+    bbox geográfico (oeste, sul, leste, norte, em graus), ou None se a leitura
+    falhar / não houver cobertura. NÃO cacheia (o bbox é livre).
+
+    A declividade sai da escala NATIVA (ver _slope_pct_native) — antes vinha do
+    DEM decimado e saía ~2× menor, o que saturava o relevo em preto. Elevação
+    segue em p5/p80 (o app de Earth Engine usa p2/p98, mas p5/p80 é o que dá o
+    contraste de cor atual).
+
+    É a mesma matemática que o modo `auto` usa; o modo "auto segue a tela" da UI
+    chama isto pela viewport corrente e congela os números explícitos na
+    querystring, então continua uniforme (sem costura) por toda a grade — só que
+    adaptado ao que está na tela."""
     read = _read_dem_part(dem, bbox)
     if read is None:
         return None
     height, mask = read
     if not mask.any():
         return None
-    w, s, e, n = bbox
-    H, W = height.shape
-    lat_c = (s + n) / 2.0
-    res_x = ((e - w) / W) * 111320.0 * math.cos(math.radians(lat_c))
-    res_y = ((n - s) / H) * 111320.0
-    slope = compute_slope(height, mask, res_x, res_y)
     hv = height[mask]
-    sv = slope[mask]
+
+    slope_max = _slope_pct_native(dem, bbox, 98.0)
+    if slope_max is None:                   # fallback: escala decimada (subestima)
+        w, s, e, n = bbox
+        H, W = height.shape
+        lat_c = (s + n) / 2.0
+        res_x = ((e - w) / W) * 111320.0 * math.cos(math.radians(lat_c))
+        res_y = ((n - s) / H) * 111320.0
+        sv = compute_slope(height, mask, res_x, res_y)[mask]
+        slope_max = max(1e-9, float(np.percentile(sv, 98)))
+
     return {
         "elevMin": float(np.percentile(hv, 5)),
         "elevMax": float(np.percentile(hv, 80)),
-        # p98 (não p80): satura em preto só os ~2% mais íngremes, deixando mais
-        # cor/relevo visível — o realce de declividade fica menos "chapado".
-        "slopeMax": max(1e-9, float(np.percentile(sv, 98))),
+        "slopeMax": slope_max,
     }
 
 
