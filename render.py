@@ -45,7 +45,9 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # tile com os mesmos parâmetros mantém o mesmo ETag depois de mudarmos a
 # matemática, o servidor responde 304 e o navegador (e a CDN) seguem servindo o
 # PNG antigo — dá pra reiniciar o servidor e continuar vendo o bug. BUMPE isto a
-# cada mudança que altere os pixels.
+# cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
+# (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
+# de 7 dias do navegador/CDN).
 RENDER_VERSION = "4"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)

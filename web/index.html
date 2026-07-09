@@ -371,6 +371,13 @@ const DEFAULTS = {
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
 };
 
+// Versão do renderizador (= render.RENDER_VERSION do servidor). Vai na
+// querystring dos tiles como cache-buster: os tiles têm Cache-Control de 7 dias,
+// então SEM URL nova o navegador/CDN seguem servindo PNGs antigos depois de uma
+// mudança na matemática do render (nem reiniciar o servidor resolve — dentro do
+// max-age o navegador nem revalida o ETag). Bumpe junto com o RENDER_VERSION.
+const TILE_VERSION = "4";
+
 // Superamostragem: px lidos por lado no zoom afastado (query `ss` do tile). Mais
 // = declividade computada mais perto da resolução nativa do DEM (mais textura,
 // menos serrilhado), mais CPU/rede por tile. O servidor limita em 1024.
@@ -447,6 +454,7 @@ function tileUrl(absolute) {
   q.set("cycles", String(P.cycles));
   q.set("dem", P.dem);
   q.set("ss", String(P.ss));   // superamostragem (qualidade no zoom afastado)
+  q.set("v", TILE_VERSION);    // cache-buster: URL nova a cada mudança do render
   const base = absolute ? location.origin : "";
   return `${base}/{z}/{x}/{y}.png?${q.toString()}`;
 }
