@@ -41,6 +41,13 @@ AUTO_BBOX = (-47.3, -24.15, -45.9, -23.15)  # (oeste, sul, leste, norte) em grau
 
 TMS = morecantile.tms.get("WebMercatorQuad")
 
+# Versão do RENDERIZADOR. Entra na chave de cache e no ETag do tile: sem ela, um
+# tile com os mesmos parâmetros mantém o mesmo ETag depois de mudarmos a
+# matemática, o servidor responde 304 e o navegador (e a CDN) seguem servindo o
+# PNG antigo — dá pra reiniciar o servidor e continuar vendo o bug. BUMPE isto a
+# cada mudança que altere os pixels.
+RENDER_VERSION = "4"
+
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
 # declividade, sobretudo ao ampliar acima da resolução nativa). `average` seria
@@ -277,8 +284,20 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     native_px = tilesize * res256 / native      # células nativas ao longo do tile
     cap = int(max_read or MAX_READ_SIZE)        # teto de superamostragem (query `ss`)
     cap = max(MIN_READ_SIZE, min(SS_HARD_MAX, cap))
-    read_size = int(round(native_px))
-    read_size = max(MIN_READ_SIZE, min(cap, read_size))
+
+    # read_size é POTÊNCIA DE 2, e não round(native_px). Isto é o que garante a
+    # AUSÊNCIA DE COSTURA: native_px depende da latitude, então arredondá-lo fazia
+    # o read_size oscilar entre linhas de tiles vizinhas (37/38 em z15, 299/300 em
+    # z12) — grades de leitura diferentes, e a declividade, sendo derivada, dá um
+    # degrau na emenda. Truncando pra potência de 2, o read_size fica constante por
+    # zoom em faixas largas de latitude (só muda onde native_px cruza uma potência
+    # de 2, perto de |lat| 38° e 67°), então tiles vizinhos compartilham a MESMA
+    # grade — o buffer faz a declividade da borda casar exatamente com a do vizinho,
+    # como se fosse calculada sobre o DEM inteiro.
+    # De quebra: 2^k divide/multiplica 256 exatamente → reamostragens exatas, e a
+    # resolução da declividade fica ~constante (≈1.0–2.0× o nativo) em todo zoom.
+    read_size = _pow2_floor(native_px)          # nunca MAIS FINO que o nativo
+    read_size = max(MIN_READ_SIZE, min(_pow2_floor(cap), read_size))
 
     # Se AINDA estamos decimando de verdade (o teto cortou, então há bem mais
     # células nativas que px lidos), a reamostragem tem que ser por ÁREA: bilinear
@@ -329,6 +348,11 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
 
     rgba = shade(height, mask, slope, elev_min, elev_max, slope_max, gamma, cycles)
     return _png_bytes(rgba)
+
+
+def _pow2_floor(v):
+    """Maior potência de 2 ≤ v (mínimo 1)."""
+    return 1 << int(math.floor(math.log2(v))) if v >= 1.0 else 1
 
 
 def _bilinear_from_buffered(a, buf, read_size, tilesize):

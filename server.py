@@ -202,7 +202,10 @@ def tile(z, x, y):
 
     # Chave de cache/ETag: z/x/y + params já resolvidos (querystring canônica).
     p = _resolve_params(dem)
-    key = (f"{dem}/{z}/{x}/{y}?e={p['elev_min']:.3f},{p['elev_max']:.3f}"
+    # `rv` (versão do renderizador) na chave/ETag: senão, mudar a matemática do
+    # render mantém o mesmo ETag → 304 → navegador/CDN servem o PNG antigo.
+    key = (f"rv{render.RENDER_VERSION}/{dem}/{z}/{x}/{y}"
+           f"?e={p['elev_min']:.3f},{p['elev_max']:.3f}"
            f"&s={p['slope_max']:.6f}&g={p['gamma']:.3f}&c={p['cycles']}"
            f"&ss={p['max_read']}")
     etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
