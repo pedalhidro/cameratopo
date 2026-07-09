@@ -125,6 +125,7 @@ def health():
 # ── UI navegável (opcional; o serviço continua sendo antes de tudo um tile
 #    server). Serve a página estática de web/ e seus assets vendorados. ────────
 @app.get("/")
+@app.get("/index.html")   # o worker da Cloudflare reescreve / → /index.html (como no amora)
 def index():
     return send_from_directory(WEB_DIR, "index.html")
 
