@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Câmera Topográfica · Pedal Hidrográfico</title>
+<meta name="description" content="Relevo de São Paulo pela Câmera Topográfica — elevação em paleta cíclica realçada pela declividade. Navegue o mapa e ajuste os parâmetros.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%E2%9B%B0%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<style>
+  :root {
+    --panel-bg: rgba(255, 255, 255, 0.86);
+    --panel-fg: #1b2430;
+    --panel-muted: #5a6675;
+    --panel-line: rgba(0, 0, 0, 0.10);
+    --panel-shadow: 0 6px 28px rgba(0, 0, 0, 0.22);
+    --accent: #c0417d;          /* magenta da cmocean.phase */
+    --accent-fg: #fff;
+    --field-bg: rgba(255, 255, 255, 0.9);
+    --field-line: rgba(0, 0, 0, 0.18);
+    --seg-bg: rgba(0, 0, 0, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --panel-bg: rgba(24, 28, 34, 0.84);
+      --panel-fg: #e8edf3;
+      --panel-muted: #9aa7b6;
+      --panel-line: rgba(255, 255, 255, 0.12);
+      --panel-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
+      --field-bg: rgba(255, 255, 255, 0.06);
+      --field-line: rgba(255, 255, 255, 0.18);
+      --seg-bg: rgba(255, 255, 255, 0.06);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--panel-fg);
+    -webkit-font-smoothing: antialiased;
+  }
+  #map { position: absolute; inset: 0; background: #0b0d10; }
+
+  /* ── Painel de controles ─────────────────────────────────────────────── */
+  #panel {
+    position: absolute; top: 12px; right: 12px; z-index: 1000;
+    width: 320px; max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px); overflow-y: auto;
+    background: var(--panel-bg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); border-radius: 14px;
+    box-shadow: var(--panel-shadow);
+    padding: 14px 16px 16px;
+  }
+  #panel::-webkit-scrollbar { width: 8px; }
+  #panel::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 8px; }
+
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .brand h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .brand .sub { font-size: 11px; color: var(--panel-muted); }
+  .brand .mtn { margin-left: auto; }
+
+  .row { margin: 12px 0; }
+  .row > label, .group-title {
+    display: block; font-size: 11.5px; font-weight: 600;
+    color: var(--panel-muted); text-transform: none; margin-bottom: 6px;
+  }
+  .hint { font-size: 11px; color: var(--panel-muted); margin-top: 5px; }
+
+  /* Busca */
+  .search { display: flex; gap: 6px; margin-bottom: 4px; }
+  .search input {
+    flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px;
+    color: var(--panel-fg); background: var(--field-bg);
+    border: 1px solid var(--field-line); border-radius: 9px;
+  }
+  .search button { flex: 0 0 auto; }
+
+  input[type="number"] {
+    width: 100%; padding: 8px 10px; font-size: 14px; color: var(--panel-fg);
+    background: var(--field-bg); border: 1px solid var(--field-line);
+    border-radius: 9px; -moz-appearance: textfield;
+  }
+  input[type="number"]:disabled { opacity: 0.5; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .two .fld label { display: block; font-size: 11px; color: var(--panel-muted); margin-bottom: 4px; }
+
+  input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+  input[type="range"]:disabled { opacity: 0.5; }
+  .slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .slider-head .val { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
+
+  /* Segmentado (DEM, base) */
+  .seg { display: flex; background: var(--seg-bg); border-radius: 9px; padding: 3px; gap: 3px; }
+  .seg button {
+    flex: 1; padding: 7px 6px; font-size: 12.5px; font-weight: 600;
+    border: 0; border-radius: 7px; background: transparent; color: var(--panel-fg);
+    cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+  .seg.seg-mini { margin: 6px 0 2px; }
+  .seg.seg-mini button { padding: 5px 6px; font-size: 11px; }
+
+  .check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .check span { font-size: 13px; }
+
+  .btns { display: grid; gap: 7px; margin-top: 14px; }
+  button.act {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+    color: var(--panel-fg); background: var(--field-bg);
+    border: 1px solid var(--field-line); border-radius: 9px;
+  }
+  button.act.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  button.act:disabled { opacity: 0.55; cursor: default; }
+  button.act:active { transform: translateY(1px); }
+
+  hr.sep { border: 0; border-top: 1px solid var(--panel-line); margin: 14px 0 2px; }
+
+  .foot { margin-top: 14px; font-size: 10.5px; color: var(--panel-muted); line-height: 1.5; }
+  .foot a { color: var(--accent); text-decoration: none; }
+
+  /* ── Legenda / colorbar ──────────────────────────────────────────────── */
+  #legend {
+    position: absolute; left: 12px; bottom: 22px; z-index: 1000;
+    width: 232px; max-width: calc(100vw - 24px);
+    background: var(--panel-bg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); border-radius: 12px;
+    box-shadow: var(--panel-shadow); padding: 10px 12px;
+  }
+  #legend .lt { font-size: 11px; font-weight: 600; color: var(--panel-muted); margin-bottom: 6px; }
+  #colorbar { height: 12px; border-radius: 4px; border: 1px solid var(--panel-line); }
+  #legend .scale { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  #legend .cap { font-size: 10.5px; color: var(--panel-muted); margin-top: 5px; }
+
+  /* Toggle do painel (mobile) */
+  #panel-toggle {
+    position: absolute; top: 12px; right: 12px; z-index: 1001; display: none;
+    width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
+    font-size: 20px; color: var(--panel-fg);
+  }
+  .toast {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    z-index: 1200; background: rgba(20,24,30,0.94); color: #fff;
+    padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4); opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 640px) {
+    #panel { top: 64px; right: 12px; left: 12px; width: auto; display: none; }
+    #panel.open { display: block; }
+    #panel-toggle { display: block; }
+    #legend { width: 180px; bottom: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<button id="panel-toggle" aria-label="Abrir/fechar controles" title="Controles">⚙️</button>
+
+<aside id="panel" aria-label="Controles da Câmera Topográfica">
+  <div class="brand">
+    <h1>Câmera Topográfica</h1>
+  </div>
+
+  <div class="row">
+    <div class="search">
+      <input id="q" type="search" placeholder="Buscar lugar…" autocomplete="off" aria-label="Buscar lugar">
+      <button class="act" id="q-go" title="Buscar">🔍</button>
+    </div>
+    <div class="hint" id="q-msg" hidden></div>
+  </div>
+
+  <div class="row">
+    <label>Modelo de elevação (DEM)</label>
+    <div class="seg" id="seg-dem" role="group" aria-label="Modelo de elevação">
+      <button data-dem="fabdem" aria-pressed="true">FABDEM · global</button>
+      <button data-dem="sp" aria-pressed="false">SP · 5 m</button>
+    </div>
+    <div class="hint" id="dem-hint">FABDEM (~30 m), cobertura global.</div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="row">
+    <label class="check"><input type="checkbox" id="auto" checked><span>Faixa automática (segue a tela)</span></label>
+    <div class="hint">Ligado: mín/máx/declive são recalculados pela porção visível a cada navegação (valores esmaecidos abaixo). Desligue — ou “Fixar” — para travar e editar à mão.</div>
+  </div>
+
+  <div class="row two">
+    <div class="fld"><label for="emin">Elevação mín. (m)</label><input type="number" id="emin" step="10" inputmode="numeric"></div>
+    <div class="fld"><label for="emax">Elevação máx. (m)</label><input type="number" id="emax" step="10" inputmode="numeric"></div>
+  </div>
+
+  <div class="row">
+    <div class="slider-head"><label for="slope" style="margin:0">Declive máximo</label><span class="val" id="slope-val">46 %</span></div>
+    <div class="seg seg-mini" id="seg-slopeunit" role="group" aria-label="Unidade do declive">
+      <button data-unit="pct" aria-pressed="true">gradiente %</button>
+      <button data-unit="deg" aria-pressed="false">graus °</button>
+    </div>
+    <input type="range" id="slope" min="1" max="120" step="1" value="46">
+    <div class="hint">Declividade que satura em preto — realça a topografia.</div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="row">
+    <div class="slider-head"><label for="gamma" style="margin:0">Correção gama do declive</label><span class="val" id="gamma-val">1.2</span></div>
+    <input type="range" id="gamma" min="0.2" max="5" step="0.1" value="1.2">
+  </div>
+
+  <div class="row">
+    <div class="slider-head"><label for="cycles" style="margin:0">Ciclos na paleta de elevação</label><span class="val" id="cycles-val">1</span></div>
+    <input type="range" id="cycles" min="1" max="16" step="1" value="1">
+    <div class="hint">Repete a paleta cíclica N vezes — vira “curvas de nível” coloridas.</div>
+  </div>
+
+  <div class="row">
+    <div class="slider-head"><label for="opacity" style="margin:0">Opacidade do relevo</label><span class="val" id="opacity-val">90 %</span></div>
+    <input type="range" id="opacity" min="0" max="100" step="1" value="90">
+  </div>
+
+  <hr class="sep">
+
+  <div class="row">
+    <label>Mapa base</label>
+    <div class="seg" id="seg-base" role="group" aria-label="Mapa base">
+      <button data-base="osm" aria-pressed="true">Mapa</button>
+      <button data-base="satellite" aria-pressed="false">Satélite</button>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button class="act primary" id="btn-estimate">📌 Fixar valores desta vista</button>
+    <button class="act" id="btn-copy-tiles">⧉ Copiar URL de tiles (XYZ)</button>
+    <button class="act" id="btn-copy-link">🔗 Copiar link desta vista</button>
+  </div>
+
+  <div class="foot">
+    Relevo: <b>FABDEM</b> / DEM-SP · paleta <b>cmocean.phase</b> × realce de declividade.
+    Tiles: <code>/{z}/{x}/{y}.png</code>. ·
+    <a href="https://amora.pedalhidrografi.co" target="_blank" rel="noopener">amora ↗</a>
+  </div>
+</aside>
+
+<div id="legend" aria-hidden="true">
+  <div class="lt">Elevação</div>
+  <div id="colorbar"></div>
+  <div class="scale"><span id="lg-min">auto</span><span id="lg-max">auto</span></div>
+  <div class="cap">escuro = mais íngreme</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script>
+"use strict";
+
+// ── Paleta cmocean.phase (17 âncoras RGB), idêntica à do render.py/app.js ────
+const CMO_PHASE = [
+  [168,120,13],[190,104,40],[207,86,67],[219,64,102],[223,42,147],[213,41,196],
+  [192,65,229],[162,92,243],[125,115,240],[82,133,220],[44,144,188],[25,149,156],
+  [12,152,124],[36,154,82],[94,148,32],[139,134,13],[168,120,13],
+];
+
+const DEFAULTS = {
+  center: [-23.55, -46.63], zoom: 13,
+  dem: "fabdem", auto: true,
+  emin: 700, emax: 1200, slope: 46,   // homenagem aos defaults do app do EE
+  gamma: 1.2, cycles: 1, opacity: 90,
+  base: "osm", slopeUnit: "pct",
+};
+
+// Sem restrição de zoom: o servidor decide o que consegue renderizar (relevo
+// some sozinho, transparente, quando o mosaico FABDEM fica afastado demais; o
+// DEM-SP serve qualquer zoom). Acima de RELIEF_MAX_NATIVE o Leaflet reamplia os
+// tiles no cliente em vez de pedir zooms nativos que só reampliariam ~30 m.
+const RELIEF_MAX_NATIVE = 17;
+
+// ── Estado (lido do hash da URL, com fallback nos defaults) ──────────────────
+const P = Object.assign({}, DEFAULTS);
+
+function readHash() {
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const num = (k, d) => { const v = parseFloat(h.get(k)); return Number.isFinite(v) ? v : d; };
+  if (h.has("map")) {
+    const m = h.get("map").split("/");
+    const z = parseInt(m[0], 10), la = parseFloat(m[1]), lo = parseFloat(m[2]);
+    if (Number.isFinite(z) && Number.isFinite(la) && Number.isFinite(lo)) { P.zoom = z; P.center = [la, lo]; }
+  }
+  if (h.get("dem") === "sp") P.dem = "sp";
+  if (h.has("auto")) P.auto = h.get("auto") === "1";
+  P.emin = num("emin", P.emin); P.emax = num("emax", P.emax);
+  P.slope = num("slope", P.slope);
+  P.gamma = num("gamma", P.gamma); P.cycles = Math.round(num("cycles", P.cycles));
+  P.opacity = Math.round(num("op", P.opacity));
+  if (h.get("base") === "satellite") P.base = "satellite";
+  if (h.get("su") === "deg") P.slopeUnit = "deg";
+}
+readHash();
+
+// Estado do "auto que segue a tela". Declarado AQUI (cedo) de propósito: tileUrl()
+// lê `autoResolved` já na criação da camada de relevo — se ficasse depois, daria
+// ReferenceError por TDZ (o `let` não é hoisted como `var`).
+let autoResolved = false;   // auto já tem estimativa? (senão → `auto` do servidor)
+let autoTimer = null, lastAutoKey = "";
+
+let hashTimer = null;
+function writeHash() {
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    const c = map.getCenter(), z = map.getZoom();
+    const q = new URLSearchParams();
+    q.set("map", `${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`);
+    q.set("dem", P.dem);
+    q.set("auto", P.auto ? "1" : "0");
+    if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
+    q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
+    q.set("base", P.base); q.set("su", P.slopeUnit);
+    history.replaceState(null, "", "#" + q.toString());
+  }, 350);
+}
+
+// ── URL de tiles ─────────────────────────────────────────────────────────────
+// Auto que já resolveu (ou modo manual) manda NÚMEROS explícitos — adaptáveis à
+// tela E sem costura (constantes em toda a grade). Auto ainda não resolvido
+// (boot/sem cobertura) cai no `auto` do servidor (percentis fixos da RMSP).
+function tileUrl(absolute) {
+  const explicit = !P.auto || autoResolved;
+  const q = new URLSearchParams();
+  q.set("elevMin", explicit ? String(P.emin) : "auto");
+  q.set("elevMax", explicit ? String(P.emax) : "auto");
+  q.set("slopeMax", explicit ? String(P.slope / 100) : "auto"); // % → m/m
+  q.set("slopeGamma", String(P.gamma));
+  q.set("cycles", String(P.cycles));
+  q.set("dem", P.dem);
+  const base = absolute ? location.origin : "";
+  return `${base}/{z}/{x}/{y}.png?${q.toString()}`;
+}
+
+// ── Mapa ─────────────────────────────────────────────────────────────────────
+const map = L.map("map", { center: P.center, zoom: P.zoom, minZoom: 2, maxZoom: 22, zoomControl: true, attributionControl: true });
+
+const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "© OpenStreetMap",
+});
+const satellite = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  { maxZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }
+);
+// Relevo com CROSSFADE: mudar parâmetro/faixa não pode "piscar". Em vez de
+// setUrl (que limpa os tiles → flash), a nova URL entra numa camada nova
+// invisível; quando ELA termina de carregar, faz fade-in e esmaece a antiga.
+// keepBuffer alto + updateWhenZooming:false deixam pan/zoom mais macios.
+const RELIEF_FADE_MS = 400;
+function reliefOpts(op) {
+  return {
+    opacity: op, minZoom: 0, maxNativeZoom: RELIEF_MAX_NATIVE, maxZoom: 22,
+    keepBuffer: 4, updateWhenZooming: false,
+    attribution: "Câmera Topográfica · FABDEM",
+  };
+}
+function fadeContainer(layer) {
+  const c = layer.getContainer();
+  if (c) c.style.transition = `opacity ${RELIEF_FADE_MS}ms ease`;
+}
+let active = L.tileLayer(tileUrl(false), reliefOpts(P.opacity / 100));
+let fadeToken = 0;
+
+function applyBase() {
+  (P.base === "satellite" ? osm : satellite).remove();
+  (P.base === "satellite" ? satellite : osm).addTo(map).bringToBack();
+}
+applyBase();
+active.addTo(map);
+
+let tileTimer = null;
+function refreshTiles() {
+  clearTimeout(tileTimer);
+  tileTimer = setTimeout(() => crossfadeRelief(tileUrl(false)), 220);
+}
+function crossfadeRelief(url) {
+  const token = ++fadeToken;
+  const incoming = L.tileLayer(url, reliefOpts(0)).addTo(map);
+  fadeContainer(incoming);
+  let done = false;
+  const swap = () => {
+    if (done) return;
+    done = true;
+    if (token !== fadeToken) { map.removeLayer(incoming); return; }  // já superada
+    incoming.setOpacity(P.opacity / 100);
+    const old = active; active = incoming;
+    fadeContainer(old); old.setOpacity(0);
+    setTimeout(() => map.removeLayer(old), RELIEF_FADE_MS + 80);
+  };
+  incoming.once("load", swap);
+  setTimeout(() => { if (!done) swap(); }, 2000);   // rede lenta / 'load' não veio
+}
+// Opacidade é controle direto: instantâneo (sem a transição do crossfade).
+function setReliefOpacity(frac) {
+  const c = active.getContainer();
+  if (c) c.style.transition = "none";
+  active.setOpacity(frac);
+}
+
+// ── Auto que segue a tela ────────────────────────────────────────────────────
+// Em modo auto, a faixa é recalculada pela porção visível (via /stats) e
+// CONGELADA em números explícitos na querystring dos tiles — adaptável à tela E
+// sem costura (mesmos números por toda a grade). Valores arredondados (elev→5 m,
+// declive→1 %) estabilizam o cache: pans pequenos caem nos mesmos números e
+// reusam os tiles. Debounce no moveend evita recomputar durante o arrasto.
+// (autoResolved / autoTimer / lastAutoKey são declarados lá em cima — TDZ.)
+function scheduleAutoEstimate() {
+  if (!P.auto) return;
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(runAutoEstimate, 600);
+}
+async function runAutoEstimate() {
+  if (!P.auto) return;
+  const b = map.getBounds();
+  const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
+  const key = `${P.dem}:${w.toFixed(3)},${s.toFixed(3)},${e.toFixed(3)},${n.toFixed(3)}`;
+  if (key === lastAutoKey) return;                 // viewport ~igual → não recomputa
+  lastAutoKey = key;
+  try {
+    const bbox = `${w.toFixed(5)},${s.toFixed(5)},${e.toFixed(5)},${n.toFixed(5)}`;
+    const r = await fetch(`/stats?bbox=${bbox}&dem=${P.dem}`);
+    const j = await r.json();
+    if (!P.auto) return;                            // desligou no meio do voo
+    if (j.ok) {
+      const emin = Math.round(j.elevMin / 5) * 5;
+      const emax = Math.max(emin + 5, Math.round(j.elevMax / 5) * 5);
+      const slope = Math.max(1, Math.min(SLOPE_MAX_PCT, Math.round(j.slopeMax * 100)));
+      const changed = !autoResolved || emin !== P.emin || emax !== P.emax || slope !== P.slope;
+      P.emin = emin; P.emax = emax; P.slope = slope; autoResolved = true;
+      syncInputs(); updateLegend();
+      if (changed) refreshTiles();
+    } else {
+      // sem cobertura / viewport grande demais → volta pro `auto` do servidor
+      if (autoResolved) { autoResolved = false; refreshTiles(); }
+      syncInputs(); updateLegend();
+    }
+  } catch (err) {
+    lastAutoKey = "";                               // deixa tentar de novo no próximo move
+    if (autoResolved) { autoResolved = false; refreshTiles(); }
+    syncInputs(); updateLegend();
+  }
+}
+
+// ── Legenda / colorbar ───────────────────────────────────────────────────────
+const colorbarEl = document.getElementById("colorbar");
+function rgb(a) { return `rgb(${a[0]},${a[1]},${a[2]})`; }
+function updateLegend() {
+  const n = CMO_PHASE.length - 1, cyc = Math.max(1, P.cycles);
+  const stops = [];
+  for (let c = 0; c < cyc; c++)
+    for (let i = 0; i <= n; i++)
+      stops.push(`${rgb(CMO_PHASE[i])} ${(((c + i / n) / cyc) * 100).toFixed(2)}%`);
+  colorbarEl.style.background = `linear-gradient(to right, ${stops.join(",")})`;
+  const showNums = !P.auto || autoResolved;
+  document.getElementById("lg-min").textContent = showNums ? `${Math.round(P.emin)} m` : "auto";
+  document.getElementById("lg-max").textContent = showNums ? `${Math.round(P.emax)} m` : "auto";
+}
+
+map.on("zoomend moveend", () => { writeHash(); scheduleAutoEstimate(); });
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+const toastEl = document.getElementById("toast");
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg; toastEl.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1800);
+}
+
+// ── Ligação dos controles ────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+
+// Declive: o estado (P.slope) é sempre GRADIENTE % (fonte da verdade; a URL de
+// tiles usa slopeMax = P.slope/100 em m/m). A unidade só muda a EXIBIÇÃO e a
+// escala do slider: gradiente % (tan·100) ou graus (o ângulo, atan). Assim o
+// toggle não mexe nos tiles.
+const SLOPE_MAX_PCT = 120;   // teto do gradiente % (≈ 50°)
+const SLOPE_UNITS = {
+  pct: { label: "%", min: 1, max: SLOPE_MAX_PCT, step: 1,
+         toDisp: (p) => Math.round(p),
+         fromDisp: (v) => v },
+  deg: { label: "°", min: 1, max: 50, step: 1,
+         toDisp: (p) => Math.round(Math.atan(p / 100) * 180 / Math.PI),
+         fromDisp: (v) => Math.tan(v * Math.PI / 180) * 100 },
+};
+const slopeCfg = () => SLOPE_UNITS[P.slopeUnit] || SLOPE_UNITS.pct;
+function syncSlopeWidget() {
+  const u = slopeCfg(), sl = $("slope"), showNums = !P.auto || autoResolved;
+  sl.min = u.min; sl.max = u.max; sl.step = u.step;
+  sl.value = Math.max(u.min, Math.min(u.max, u.toDisp(P.slope)));
+  sl.disabled = P.auto;
+  $("slope-val").textContent = showNums ? `${u.toDisp(P.slope)} ${u.label}` : "auto";
+  for (const b of $("seg-slopeunit").children)
+    b.setAttribute("aria-pressed", String(b.dataset.unit === P.slopeUnit));
+}
+
+// Reflete o estado nos widgets. Em auto ainda não resolvido, os campos ficam
+// vazios com placeholder "auto"; resolvido, mostram os números (esmaecidos).
+function syncInputs() {
+  const showNums = !P.auto || autoResolved;
+  $("emin").value = showNums ? Math.round(P.emin) : "";
+  $("emax").value = showNums ? Math.round(P.emax) : "";
+  $("emin").placeholder = $("emax").placeholder = showNums ? "" : "auto";
+  $("emin").disabled = $("emax").disabled = P.auto;
+  $("auto").checked = P.auto;
+  syncSlopeWidget();
+  $("gamma").value = P.gamma; $("gamma-val").textContent = P.gamma.toFixed(1);
+  $("cycles").value = P.cycles; $("cycles-val").textContent = P.cycles;
+  $("opacity").value = P.opacity; $("opacity-val").textContent = `${P.opacity} %`;
+  for (const b of $("seg-dem").children) b.setAttribute("aria-pressed", String(b.dataset.dem === P.dem));
+  for (const b of $("seg-base").children) b.setAttribute("aria-pressed", String(b.dataset.base === P.base));
+  $("dem-hint").textContent = P.dem === "sp"
+    ? "DEM de São Paulo (~5 m) — só cobre a região metropolitana."
+    : "FABDEM (~30 m), cobertura global.";
+}
+
+// auto (segue a tela)
+$("auto").addEventListener("change", (e) => {
+  P.auto = e.target.checked;
+  if (P.auto) {                       // liga: re-estima já pra vista atual
+    autoResolved = false; lastAutoKey = "";
+    syncInputs(); updateLegend(); refreshTiles(); runAutoEstimate();
+  } else {                            // desliga: congela no último estimado (editável)
+    syncInputs(); updateLegend(); refreshTiles();
+  }
+  writeHash();
+});
+// elevação
+function onElev() {
+  const lo = parseFloat($("emin").value), hi = parseFloat($("emax").value);
+  if (Number.isFinite(lo)) P.emin = lo;
+  if (Number.isFinite(hi)) P.emax = hi;
+  updateLegend(); refreshTiles(); writeHash();
+}
+$("emin").addEventListener("input", onElev);
+$("emax").addEventListener("input", onElev);
+// declive (o valor arrastado está na unidade atual → converte pra gradiente %)
+$("slope").addEventListener("input", (e) => {
+  const u = slopeCfg();
+  P.slope = Math.max(1, Math.min(SLOPE_MAX_PCT, u.fromDisp(parseFloat(e.target.value))));
+  $("slope-val").textContent = `${u.toDisp(P.slope)} ${u.label}`;
+  refreshTiles(); writeHash();
+});
+// unidade do declive (%↔°): só reexibe; não mexe nos tiles
+$("seg-slopeunit").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b || b.dataset.unit === P.slopeUnit) return;
+  P.slopeUnit = b.dataset.unit; syncSlopeWidget(); writeHash();
+});
+// gama
+$("gamma").addEventListener("input", (e) => {
+  P.gamma = parseFloat(e.target.value); $("gamma-val").textContent = P.gamma.toFixed(1);
+  refreshTiles(); writeHash();
+});
+// ciclos
+$("cycles").addEventListener("input", (e) => {
+  P.cycles = parseInt(e.target.value, 10); $("cycles-val").textContent = P.cycles;
+  updateLegend(); refreshTiles(); writeHash();
+});
+// opacidade (não recarrega tiles — só setOpacity)
+$("opacity").addEventListener("input", (e) => {
+  P.opacity = parseInt(e.target.value, 10); $("opacity-val").textContent = `${P.opacity} %`;
+  setReliefOpacity(P.opacity / 100); writeHash();
+});
+// DEM
+$("seg-dem").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.dem === P.dem) return;
+  P.dem = b.dataset.dem; lastAutoKey = "";
+  if (P.auto) {                       // nova fonte → re-estima a faixa
+    autoResolved = false; syncInputs(); updateLegend(); refreshTiles(); runAutoEstimate();
+  } else {
+    syncInputs(); refreshTiles();
+  }
+  writeHash();
+});
+// base
+$("seg-base").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  P.base = b.dataset.base; applyBase(); syncInputs(); writeHash();
+});
+
+// ── Fixar valores desta vista: estima e passa pro modo manual (editável) ─────
+$("btn-estimate").addEventListener("click", async () => {
+  const btn = $("btn-estimate"); const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "⏳ Estimando…";
+  try {
+    const b = map.getBounds();
+    const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
+    const r = await fetch(`/stats?bbox=${bbox}&dem=${P.dem}`);
+    const j = await r.json();
+    if (!j.ok) { toast(j.error || "Não deu para estimar aqui"); return; }
+    P.auto = false;
+    P.emin = Math.round(j.elevMin / 5) * 5;
+    P.emax = Math.max(P.emin + 5, Math.round(j.elevMax / 5) * 5);
+    P.slope = Math.max(1, Math.min(SLOPE_MAX_PCT, Math.round(j.slopeMax * 100)));
+    syncInputs(); updateLegend(); refreshTiles(); writeHash();
+    toast("Valores fixados — edite à vontade");
+  } catch (err) {
+    toast("Falha ao estimar (servidor offline?)");
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+});
+
+// ── Copiar ───────────────────────────────────────────────────────────────────
+async function copy(text, msg) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+    toast(msg);
+  } catch (e) { toast("Não consegui copiar — copie da barra de endereço"); }
+}
+$("btn-copy-tiles").addEventListener("click", () => copy(tileUrl(true), "URL de tiles copiada"));
+$("btn-copy-link").addEventListener("click", () => { writeHash(); setTimeout(() => copy(location.href, "Link desta vista copiado"), 60); });
+
+// ── Busca (Nominatim / OSM) ──────────────────────────────────────────────────
+async function search() {
+  const q = $("q").value.trim(); const msg = $("q-msg");
+  if (!q) return;
+  msg.hidden = false; msg.textContent = "Buscando…";
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`,
+      { headers: { "Accept": "application/json" } });
+    const j = await r.json();
+    if (!j.length) { msg.textContent = "Nada encontrado."; return; }
+    const hit = j[0];
+    msg.textContent = hit.display_name;   // textContent → sem XSS
+    const bb = hit.boundingbox;
+    if (bb && bb.length === 4) map.fitBounds([[+bb[0], +bb[2]], [+bb[1], +bb[3]]], { maxZoom: 15 });
+    else map.setView([+hit.lat, +hit.lon], 14);
+  } catch (e) { msg.textContent = "Busca indisponível."; }
+}
+$("q-go").addEventListener("click", search);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); search(); } });
+
+// ── Toggle do painel (mobile) ────────────────────────────────────────────────
+$("panel-toggle").addEventListener("click", () => $("panel").classList.toggle("open"));
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+L.control.scale({ imperial: false }).addTo(map);
+syncInputs(); updateLegend();
+if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
+</script>
+</body>
+</html>

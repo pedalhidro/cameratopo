@@ -31,17 +31,70 @@ GET /{z}/{x}/{y}.png
 |--------------|--------------------------------------------------------------------|---------|
 | `elevMin`    | elevação (m) mapeada pro início da paleta. `auto` = p5 da RMSP      | `auto`  |
 | `elevMax`    | elevação (m) mapeada pro fim da paleta. `auto` = p80 da RMSP        | `auto`  |
-| `slopeMax`   | declividade (m/m) que satura em preto. `auto` = p80 da declividade  | `auto`  |
+| `slopeMax`   | declividade (m/m) que satura em preto. `auto` = p98 da declividade  | `auto`  |
 | `slopeGamma` | γ do realce de declividade (1 = linear; >1 suaviza)                 | `1.2`   |
 | `cycles`     | quantas vezes a paleta se repete na faixa (contorno cíclico), 1–16  | `1`     |
 | `dem`        | `fabdem` (global ~30 m) \| `sp` (DEM de São Paulo ~5 m)             | `fabdem`|
 
 `auto` também é assumido quando o parâmetro é omitido ou vem vazio. Fora da
-cobertura do DEM (ou fora da faixa de zoom) o tile sai transparente.
+cobertura do DEM o tile sai transparente.
 
 ```
 GET /health   → {"ok": true}
 ```
+
+## Reamostragem, zoom e custo
+
+- **Reamostragem `bilinear`** na leitura do DEM (em vez do `nearest` default do
+  rio-tiler) — relevo e declividade suaves.
+- **Lê/computa sempre ~na resolução nativa do DEM.** Cada tile é lido com ~1
+  pixel por célula nativa (~30 m FABDEM, ~5 m SP), a declividade é computada
+  nesse grid e só então o RGBA é reampliado pro tamanho do tile. É o que evita a
+  **grade** que aparecia ao ampliar além do nativo (a declividade de uma
+  superfície interpolada é constante por célula → degraus). De quebra poupa
+  CPU/memória. Knobs: `CAMERATOPO_FABDEM_NATIVE_M` (30), `CAMERATOPO_SP_NATIVE_M`
+  (5), `CAMERATOPO_MIN_READ_SIZE` (8).
+- **Sem restrição de zoom** (`CAMERATOPO_MIN_ZOOM`=0, `MAX_ZOOM`=24). O custo é
+  contido não por um piso de zoom, mas pela **guarda do mosaico FABDEM**: um tile
+  cujo span passa de `CAMERATOPO_MOSAIC_MAX_SPAN` (6°) ou que precisaria de mais
+  de `CAMERATOPO_MOSAIC_MAX_ASSETS` (40) COGs 1° sai transparente. O DEM-SP, COG
+  único com overviews, serve qualquer zoom barato.
+
+## UI navegável (`GET /`)
+
+Abrir `cameratopo.pedalhidrografi.co/` (ou `http://127.0.0.1:8400/` local) dá uma
+página estática — mapa Leaflet + painel de parâmetros — pra explorar o relevo e
+achar uma combinação boa antes de embutir os tiles em outro cliente. Inspirada no
+app de Earth Engine da Câmera Topográfica, mas self-contained e sem lock-in:
+Leaflet é **vendorado** em `web/vendor/` (nada de CDN), só a busca de lugar
+(Nominatim/OSM) e os tiles de base (OSM/Esri) batem em serviço externo.
+
+- Navega o mapa, ajusta elevação mín./máx., declive máx., γ, ciclos e opacidade;
+  cada mudança só reescreve a querystring dos tiles (`relief.setUrl`). O declive
+  tem toggle **gradiente % ↔ graus** (só muda a exibição; internamente é sempre
+  gradiente %).
+- **Faixa automática (segue a tela)**: com auto ligado, a UI chama
+  `GET /stats?bbox=…&dem=…` pela porção visível a cada navegação (debounced,
+  valores arredondados p/ estabilizar o cache) e **congela números explícitos**
+  na querystring — adaptável à tela E sem costura (mesmos números por toda a
+  grade). Os valores aparecem esmaecidos nos campos. **Fixar valores desta
+  vista** trava a estimativa atual em modo manual (editável).
+- **Copiar URL de tiles (XYZ)** dá o template `…/{z}/{x}/{y}.png?…` pronto pra
+  colar em qualquer cliente; **Copiar link desta vista** dá a página com todo o
+  estado no hash da URL (`#map=z/lat/lng&…`), então uma configuração é
+  compartilhável por link.
+
+```
+GET /stats?bbox=<oeste,sul,leste,norte>&dem=fabdem|sp
+  → {"ok": true, "dem": "...", "elevMin": .., "elevMax": .., "slopeMax": ..}
+```
+
+`slopeMax` volta em **m/m** (a UI mostra em %). O bbox é limitado a 5° por lado
+(defesa: sem teto, um bbox gigante enumeraria centenas de COGs FABDEM). Sem
+cobertura de DEM → `{"ok": false}`. `GET /`, `/stats` e os assets de `web/` só
+existem quando a página é servida — o serviço continua sendo, antes de tudo, um
+tile server; um host estático-só (CDN) serve só a página, e o botão “Estimar”
+fica sem backend.
 
 Tiles são determinísticos por `(z, x, y, querystring)`: resposta com
 `Cache-Control: public, max-age=7d` + `ETag` (com suporte a `If-None-Match` →

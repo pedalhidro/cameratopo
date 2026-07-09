@@ -11,7 +11,7 @@ Endpoint:
     GET /{z}/{x}/{y}.png   tile do relevo. Query params (todos opcionais):
         elevMin, elevMax   faixa de elevação da paleta, em metros. `auto` (ou
                            omitido) = percentil p5 / p80 da região de referência.
-        slopeMax           declividade (m/m) que satura em preto. `auto` = p80.
+        slopeMax           declividade (m/m) que satura em preto. `auto` = p98.
         slopeGamma         γ do realce de declividade (default 1.2).
         cycles             quantas vezes a paleta se repete na faixa (default 1).
         dem                fabdem (default) | sp (DEM de SP ~5 m).
@@ -26,15 +26,26 @@ import hashlib
 import math
 import os
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 import render
 
 app = Flask(__name__)
 
-MIN_ZOOM = int(os.environ.get("CAMERATOPO_MIN_ZOOM") or 6)
-MAX_ZOOM = int(os.environ.get("CAMERATOPO_MAX_ZOOM") or 19)
+WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+
+# Faixa de zoom só como sanidade (z válido + x/y dentro de 2^z). NÃO é mais o
+# limite prático: quem contém o custo é a guarda do mosaico FABDEM em render.py
+# (span/contagem de COGs) — o DEM-SP, sendo COG único com overviews, serve
+# qualquer zoom barato. Defaults abertos (0–24) = "sem restrição de zoom".
+MIN_ZOOM = int(os.environ.get("CAMERATOPO_MIN_ZOOM") or 0)
+MAX_ZOOM = int(os.environ.get("CAMERATOPO_MAX_ZOOM") or 24)
 CACHE_MAX_AGE = int(os.environ.get("CAMERATOPO_MAX_AGE") or 604800)  # 7 dias
+
+# Maior span (graus) aceito no /stats — a UI só manda a viewport (pequena), mas
+# o endpoint é público: sem teto, um bbox gigante enumeraria centenas de COGs
+# FABDEM 1°×1°. 5° cobre qualquer viewport plausível com folga.
+STATS_MAX_SPAN_DEG = float(os.environ.get("CAMERATOPO_STATS_MAX_SPAN") or 5.0)
 
 # GDAL/vsicurl: leitura eficiente de COG remoto (só ranges, sem listar diretório).
 os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
@@ -108,6 +119,69 @@ def _png_response(body, etag):
 @app.get("/health")
 def health():
     return jsonify(ok=True)
+
+
+# ── UI navegável (opcional; o serviço continua sendo antes de tudo um tile
+#    server). Serve a página estática de web/ e seus assets vendorados. ────────
+@app.get("/")
+def index():
+    return send_from_directory(WEB_DIR, "index.html")
+
+
+@app.get("/vendor/<path:p>")
+def vendor(p):
+    # Só o dir vendorado (Leaflet); send_from_directory já barra path traversal.
+    return send_from_directory(os.path.join(WEB_DIR, "vendor"), p)
+
+
+@app.get("/favicon.ico")
+def favicon():
+    path = os.path.join(WEB_DIR, "favicon.ico")
+    if os.path.exists(path):
+        return send_from_directory(WEB_DIR, "favicon.ico")
+    return Response(status=204)
+
+
+@app.get("/stats")
+def stats():
+    """Percentis (elevMin p5, elevMax p80, slopeMax p80) sobre a extensão atual
+    do mapa — alimenta o botão "Estimar pela extensão atual" da UI. A UI congela
+    esses números explícitos na querystring dos tiles, então continua uniforme
+    (sem costura). Query: bbox=oeste,sul,leste,norte (graus) & dem=fabdem|sp."""
+    dem = "sp" if (request.args.get("dem") or "").lower() == "sp" else "fabdem"
+    raw = request.args.get("bbox") or ""
+    try:
+        w, s, e, n = (float(v) for v in raw.split(","))
+    except (ValueError, TypeError):
+        return _json_cors({"ok": False, "error": "bbox inválido"}, 400)
+    if not all(math.isfinite(v) for v in (w, s, e, n)):
+        return _json_cors({"ok": False, "error": "bbox inválido"}, 400)
+    # Normaliza e valida a ordenação/tamanho (defende de bbox degenerado/gigante).
+    w, e = min(w, e), max(w, e)
+    s, n = min(s, n), max(s, n)
+    w = max(-180.0, w); e = min(180.0, e)
+    s = max(-85.06, s); n = min(85.06, n)
+    if e <= w or n <= s:
+        return _json_cors({"ok": False, "error": "bbox degenerado"}, 400)
+    if (e - w) > STATS_MAX_SPAN_DEG or (n - s) > STATS_MAX_SPAN_DEG:
+        return _json_cors({"ok": False, "error": "bbox grande demais"}, 400)
+
+    try:
+        st = render.stats_for_bbox(dem, (w, s, e, n))
+    except Exception as exc:  # noqa: BLE001 — nunca derruba o endpoint
+        app.logger.warning("stats %s falhou: %s", raw, exc)
+        st = None
+    if st is None:
+        return _json_cors({"ok": False, "error": "sem cobertura de DEM aqui"}, 200)
+    return _json_cors({"ok": True, "dem": dem, **st}, 200)
+
+
+def _json_cors(obj, status):
+    resp = jsonify(obj)
+    resp.status_code = status
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
 
 
 @app.get("/<int:z>/<int:x>/<int:y>.png")

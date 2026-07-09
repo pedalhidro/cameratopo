@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import threading
 from collections import OrderedDict
 
@@ -38,6 +39,37 @@ SAMPA_DEM_URL = "https://telhas.pedalhidrografi.co/dem/sampa_geral.tif"
 AUTO_BBOX = (-47.3, -24.15, -45.9, -23.15)  # (oeste, sul, leste, norte) em graus
 
 TMS = morecantile.tms.get("WebMercatorQuad")
+
+# Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
+# em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
+# declividade, sobretudo ao ampliar acima da resolução nativa). `average` seria
+# ideal no downsampling puro, mas bilinear é o melhor compromisso único.
+RESAMPLING = os.environ.get("CAMERATOPO_RESAMPLING") or "bilinear"
+
+# ── Ler/computar SEMPRE ~na resolução nativa do DEM ─────────────────────────
+# Resolução nativa aproximada (m/px no solo) de cada fonte. É o que decide em
+# QUE resolução ler o DEM e computar a declividade: sempre ~1 pixel por célula
+# nativa, e reamplia-se o RGBA já sombreado pro tamanho do tile.
+#   • Zoom-IN além do nativo: ler 256 px só INTERPOLA, e a declividade de uma
+#     superfície interpolada é constante por célula → aparece como GRADE. Ler no
+#     nativo e reampliar o resultado mata a grade (era o que o cliente do amora
+#     fazia: declividade no grid nativo do FABDEM).
+#   • Zoom-OUT: o overview do COG já entrega poucos bytes; ler no nativo (≤256)
+#     também poupa CPU/memória.
+FABDEM_NATIVE_M = float(os.environ.get("CAMERATOPO_FABDEM_NATIVE_M") or 30.0)
+SP_NATIVE_M = float(os.environ.get("CAMERATOPO_SP_NATIVE_M") or 5.0)
+# Piso do grid de leitura: a declividade precisa de alguns pixels. Mantê-lo BAIXO
+# é o que evita reintroduzir a grade no zoom extremo — se o piso forçasse ler
+# MAIS FINO que o nativo, a declividade voltaria a ver a interpolação por célula.
+MIN_READ_SIZE = int(os.environ.get("CAMERATOPO_MIN_READ_SIZE") or 8)
+
+# ── Guarda do mosaico FABDEM (1°×1°) ────────────────────────────────────────
+# Sem teto de zoom, um tile muito afastado abriria dezenas/centenas de COGs 1°
+# (cada abertura = HTTP + memória). O DEM-SP é um COG único (com overviews), não
+# precisa de guarda — só o mosaico FABDEM. Acima do span/contagem, o tile sai
+# transparente (o cliente simplesmente não mostra relevo tão afastado).
+MOSAIC_MAX_SPAN_DEG = float(os.environ.get("CAMERATOPO_MOSAIC_MAX_SPAN") or 6.0)
+MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 40)
 
 # Paleta cmocean.phase (17 âncoras RGB), idêntica à CMO_PHASE do app.js. É
 # cíclica (primeira == última âncora), então repetir N ciclos não emenda.
@@ -88,15 +120,21 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256):
     try:
         if dem == "sp":
             with Reader(SAMPA_DEM_URL) as r:
-                img = r.tile(x, y, z, tilesize=tilesize, buffer=buffer)
+                img = r.tile(x, y, z, tilesize=tilesize, buffer=buffer,
+                             resampling_method=RESAMPLING)
         else:
             b = TMS.bounds(morecantile.Tile(x, y, z))
+            # Guarda: mosaico 1°×1° não serve zoom muito afastado (abriria COGs
+            # demais). Acima do span/contagem máximos → sem relevo (transparente).
+            if (b.right - b.left) > MOSAIC_MAX_SPAN_DEG or \
+               (b.top - b.bottom) > MOSAIC_MAX_SPAN_DEG:
+                return None
             assets = _fabdem_assets_for_bounds(b.left, b.bottom, b.right, b.top)
-            if not assets:
+            if not assets or len(assets) > MOSAIC_MAX_ASSETS:
                 return None
             img, _ = mosaic_reader(
                 assets, _asset_tile, x, y, z,
-                tilesize=tilesize, buffer=buffer,
+                tilesize=tilesize, buffer=buffer, resampling_method=RESAMPLING,
                 allowed_exceptions=(TileOutsideBounds,),
             )
     except (TileOutsideBounds, EmptyMosaicError):
@@ -198,22 +236,62 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
                 tilesize=256):
     """Renderiza um tile → bytes PNG (RGBA). Retorna None quando o tile não é
     coberto pelo DEM (o servidor devolve um PNG transparente)."""
-    read = read_dem_tile(dem, x, y, z, buffer=1, tilesize=tilesize)
+    b = TMS.bounds(morecantile.Tile(x, y, z))
+    lat_c = (b.bottom + b.top) / 2.0
+    res256 = _mercator_res_m(z, lat_c)   # m/px de solo se lêssemos tilesize px
+
+    # Grid de leitura ~1 px por célula nativa: nunca MAIS FINO que o nativo (isso
+    # só interpolaria e traria a grade de volta no zoom-in), nunca mais que o
+    # tile. Assim a declividade é sempre computada na escala real do dado.
+    native = SP_NATIVE_M if dem == "sp" else FABDEM_NATIVE_M
+    read_size = int(round(tilesize * res256 / native))
+    read_size = max(MIN_READ_SIZE, min(tilesize, read_size))
+
+    read = read_dem_tile(dem, x, y, z, buffer=1, tilesize=read_size)
     if read is None:
         return None
     height, mask = read
     if not mask.any():
         return None
 
-    b = TMS.bounds(morecantile.Tile(x, y, z))
-    lat_c = (b.bottom + b.top) / 2.0
-    res = _mercator_res_m(z, lat_c)  # px quadrado no Web-Mercator local
+    # Resolução de solo POR PIXEL LIDO = extent / read_size (extent = tilesize*res256).
+    res = res256 * (tilesize / read_size)
     slope = compute_slope(height, mask, res, res)
 
+    # Descarta a borda de buffer (1 px de cada lado) → read_size×read_size.
+    height = height[1:-1, 1:-1]
+    mask = mask[1:-1, 1:-1]
+    slope = slope[1:-1, 1:-1]
+
+    # Zoom além do nativo (read_size < tile): reamplia os CAMPOS ESCALARES
+    # (elevação + declividade) pro tamanho do tile e SÓ ENTÃO aplica a paleta.
+    # Reampliar os escalares (não o RGB) mantém a paleta cíclica fiel — interpolar
+    # RGB entre hues distantes passaria pelo cinza — e a declividade, calculada no
+    # grid nativo, sobe lisa (sem a grade das células do DEM).
+    if read_size != tilesize:
+        fill = float(np.median(height[mask])) if mask.any() else 0.0
+        height = _resize_scalar(height, tilesize, fill)
+        slope = _resize_scalar(slope, tilesize, 0.0)
+        mask = _resize_mask(mask, tilesize)
+
     rgba = shade(height, mask, slope, elev_min, elev_max, slope_max, gamma, cycles)
-    # Descarta a borda de buffer (1 px de cada lado) → tilesize×tilesize.
-    rgba = rgba[1:-1, 1:-1, :]
     return _png_bytes(rgba)
+
+
+def _resize_scalar(field, size, fill):
+    """Reamplia um campo escalar (H,W) float pra size×size (bilinear). nodata
+    (nan) vira `fill` antes, pra não propagar nan na interpolação — o alfa final
+    vem da máscara reampliada à parte."""
+    a = np.where(np.isfinite(field), field, fill).astype(np.float32)
+    img = Image.fromarray(a, mode="F").resize((size, size), Image.BILINEAR)
+    return np.asarray(img, dtype=np.float64)
+
+
+def _resize_mask(mask, size):
+    """Reamplia a máscara (bool) pra size×size; ≥0.5 = coberto."""
+    m = mask.astype(np.float32)
+    img = Image.fromarray(m, mode="F").resize((size, size), Image.BILINEAR)
+    return np.asarray(img) >= 0.5
 
 
 def _png_bytes(rgba):
@@ -248,7 +326,8 @@ def _read_dem_part(dem, bbox, max_size=512):
     """Lê a região de referência em EPSG:4326 (graus), decimada a ~max_size.
     Retorna None se a leitura falhar (telhas fora do ar / sem cobertura)."""
     w, s, e, n = bbox
-    kw = dict(dst_crs="EPSG:4326", bounds_crs="EPSG:4326", max_size=max_size)
+    kw = dict(dst_crs="EPSG:4326", bounds_crs="EPSG:4326", max_size=max_size,
+              resampling_method=RESAMPLING)
     try:
         if dem == "sp":
             with Reader(SAMPA_DEM_URL) as r:
@@ -274,31 +353,47 @@ def _read_dem_part(dem, bbox, max_size=512):
     return height, mask
 
 
+def stats_for_bbox(dem, bbox):
+    """{elevMin(p5), elevMax(p80), slopeMax(p98 da declividade)} sobre um bbox
+    geográfico arbitrário (oeste, sul, leste, norte, em graus). Lê o DEM
+    decimado (~512 px), computa declividade e devolve os percentis — ou None se
+    a leitura falhar / o bbox não tiver cobertura. NÃO cacheia (o bbox é livre).
+
+    É a mesma matemática que o modo `auto` usa; o botão "Estimar pela extensão
+    atual" da UI chama isto pela viewport corrente e congela os números
+    explícitos na querystring, então continua uniforme (sem costura) por toda a
+    grade — só que adaptado ao que está na tela."""
+    read = _read_dem_part(dem, bbox)
+    if read is None:
+        return None
+    height, mask = read
+    if not mask.any():
+        return None
+    w, s, e, n = bbox
+    H, W = height.shape
+    lat_c = (s + n) / 2.0
+    res_x = ((e - w) / W) * 111320.0 * math.cos(math.radians(lat_c))
+    res_y = ((n - s) / H) * 111320.0
+    slope = compute_slope(height, mask, res_x, res_y)
+    hv = height[mask]
+    sv = slope[mask]
+    return {
+        "elevMin": float(np.percentile(hv, 5)),
+        "elevMax": float(np.percentile(hv, 80)),
+        # p98 (não p80): satura em preto só os ~2% mais íngremes, deixando mais
+        # cor/relevo visível — o realce de declividade fica menos "chapado".
+        "slopeMax": max(1e-9, float(np.percentile(sv, 98))),
+    }
+
+
 def auto_stats(dem):
-    """{elevMin(p5), elevMax(p80), slopeMax(p80 da declividade)} sobre a região
+    """{elevMin(p5), elevMax(p80), slopeMax(p98 da declividade)} sobre a região
     de referência. Calculado uma vez por DEM e cacheado — assim `auto` é
     constante em toda a grade de tiles (sem costuras)."""
     with _auto_lock:
         if dem in _auto_cache:
             return _auto_cache[dem]
-    read = _read_dem_part(dem, AUTO_BBOX)
-    stats = None
-    if read is not None:
-        height, mask = read
-        if mask.any():
-            w, s, e, n = AUTO_BBOX
-            H, W = height.shape
-            lat_c = (s + n) / 2.0
-            res_x = ((e - w) / W) * 111320.0 * math.cos(math.radians(lat_c))
-            res_y = ((n - s) / H) * 111320.0
-            slope = compute_slope(height, mask, res_x, res_y)
-            hv = height[mask]
-            sv = slope[mask]
-            stats = {
-                "elevMin": float(np.percentile(hv, 5)),
-                "elevMax": float(np.percentile(hv, 80)),
-                "slopeMax": max(1e-9, float(np.percentile(sv, 80))),
-            }
+    stats = stats_for_bbox(dem, AUTO_BBOX)
     if stats is None:
         # Fallback sensato pra RMSP se a leitura falhar (offline/telhas fora).
         # NÃO cacheia — a próxima requisição tenta calcular os percentis reais.
