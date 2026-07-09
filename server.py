@@ -94,7 +94,8 @@ def _resolve_params(dem):
 
     cyc = request.args.get("cycles")
     try:
-        cycles = int(float(cyc)) if cyc else 1
+        f = float(cyc) if cyc else 1.0
+        cycles = int(f) if math.isfinite(f) else 1  # inf → int() estouraria (OverflowError)
     except (TypeError, ValueError):
         cycles = 1
     cycles = min(16, max(1, cycles))
@@ -144,8 +145,9 @@ def favicon():
 
 @app.get("/stats")
 def stats():
-    """Percentis (elevMin p5, elevMax p80, slopeMax p80) sobre a extensão atual
-    do mapa — alimenta o botão "Estimar pela extensão atual" da UI. A UI congela
+    """Percentis (elevMin p5, elevMax p80, slopeMax p98) sobre a extensão atual
+    do mapa — alimenta o botão "Fixar valores desta vista" e o modo "auto segue a
+    tela" da UI. A UI congela
     esses números explícitos na querystring dos tiles, então continua uniforme
     (sem costura). Query: bbox=oeste,sul,leste,norte (graus) & dem=fabdem|sp."""
     dem = "sp" if (request.args.get("dem") or "").lower() == "sp" else "fabdem"

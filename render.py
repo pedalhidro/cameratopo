@@ -359,10 +359,10 @@ def stats_for_bbox(dem, bbox):
     decimado (~512 px), computa declividade e devolve os percentis — ou None se
     a leitura falhar / o bbox não tiver cobertura. NÃO cacheia (o bbox é livre).
 
-    É a mesma matemática que o modo `auto` usa; o botão "Estimar pela extensão
-    atual" da UI chama isto pela viewport corrente e congela os números
-    explícitos na querystring, então continua uniforme (sem costura) por toda a
-    grade — só que adaptado ao que está na tela."""
+    É a mesma matemática que o modo `auto` usa; o modo "auto segue a tela" (e o
+    botão "Fixar valores desta vista") da UI chama isto pela viewport corrente e
+    congela os números explícitos na querystring, então continua uniforme (sem
+    costura) por toda a grade — só que adaptado ao que está na tela."""
     read = _read_dem_part(dem, bbox)
     if read is None:
         return None
@@ -390,17 +390,20 @@ def auto_stats(dem):
     """{elevMin(p5), elevMax(p80), slopeMax(p98 da declividade)} sobre a região
     de referência. Calculado uma vez por DEM e cacheado — assim `auto` é
     constante em toda a grade de tiles (sem costuras)."""
+    # Resolve DENTRO do lock (double-checked): numa carga fria com várias threads
+    # (gunicorn --threads 8), todas pegam o MESMO resultado — real OU fallback —
+    # em vez de umas lerem telhas com sucesso e outras caírem no fallback, o que
+    # normalizaria tiles vizinhos diferente (costura). Segura o lock durante a
+    # leitura (custo único por DEM, só no cold start). O fallback NÃO é cacheado:
+    # a próxima onda tenta os percentis reais de novo.
     with _auto_lock:
         if dem in _auto_cache:
             return _auto_cache[dem]
-    stats = stats_for_bbox(dem, AUTO_BBOX)
-    if stats is None:
-        # Fallback sensato pra RMSP se a leitura falhar (offline/telhas fora).
-        # NÃO cacheia — a próxima requisição tenta calcular os percentis reais.
-        return {"elevMin": 720.0, "elevMax": 920.0, "slopeMax": 0.20}
-    with _auto_lock:
+        stats = stats_for_bbox(dem, AUTO_BBOX)
+        if stats is None:
+            return {"elevMin": 720.0, "elevMax": 920.0, "slopeMax": 0.20}
         _auto_cache[dem] = stats
-    return stats
+        return stats
 
 
 # ── Cache LRU de PNGs renderizados (chave = z/x/y + params) ──────────────────

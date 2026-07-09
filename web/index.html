@@ -310,21 +310,26 @@ readHash();
 // ReferenceError por TDZ (o `let` não é hoisted como `var`).
 let autoResolved = false;   // auto já tem estimativa? (senão → `auto` do servidor)
 let autoTimer = null, lastAutoKey = "";
+let autoReqToken = 0;       // sequência p/ descartar respostas /stats fora de ordem
 
 let hashTimer = null;
+// Escreve o hash AGORA (síncrono). Quem precisa do location.href atualizado na
+// hora (ex.: "copiar link") chama isto, não o writeHash debounced.
+function commitHash() {
+  clearTimeout(hashTimer); hashTimer = null;
+  const c = map.getCenter(), z = map.getZoom();
+  const q = new URLSearchParams();
+  q.set("map", `${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`);
+  q.set("dem", P.dem);
+  q.set("auto", P.auto ? "1" : "0");
+  if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
+  q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
+  q.set("base", P.base); q.set("su", P.slopeUnit);
+  history.replaceState(null, "", "#" + q.toString());
+}
 function writeHash() {
   clearTimeout(hashTimer);
-  hashTimer = setTimeout(() => {
-    const c = map.getCenter(), z = map.getZoom();
-    const q = new URLSearchParams();
-    q.set("map", `${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`);
-    q.set("dem", P.dem);
-    q.set("auto", P.auto ? "1" : "0");
-    if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
-    q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
-    q.set("base", P.base); q.set("su", P.slopeUnit);
-    history.replaceState(null, "", "#" + q.toString());
-  }, 350);
+  hashTimer = setTimeout(commitHash, 350);
 }
 
 // ── URL de tiles ─────────────────────────────────────────────────────────────
@@ -428,11 +433,14 @@ async function runAutoEstimate() {
   const key = `${P.dem}:${w.toFixed(3)},${s.toFixed(3)},${e.toFixed(3)},${n.toFixed(3)}`;
   if (key === lastAutoKey) return;                 // viewport ~igual → não recomputa
   lastAutoKey = key;
+  const myTok = ++autoReqToken;                     // esta é a requisição vigente
   try {
     const bbox = `${w.toFixed(5)},${s.toFixed(5)},${e.toFixed(5)},${n.toFixed(5)}`;
     const r = await fetch(`/stats?bbox=${bbox}&dem=${P.dem}`);
     const j = await r.json();
-    if (!P.auto) return;                            // desligou no meio do voo
+    // desligou o auto OU já houve outra viewport/DEM → ignora esta resposta
+    // (senão uma resposta lenta/fora de ordem normalizaria pela vista errada).
+    if (!P.auto || myTok !== autoReqToken) return;
     if (j.ok) {
       const emin = Math.round(j.elevMin / 5) * 5;
       const emax = Math.max(emin + 5, Math.round(j.elevMax / 5) * 5);
@@ -447,6 +455,7 @@ async function runAutoEstimate() {
       syncInputs(); updateLegend();
     }
   } catch (err) {
+    if (myTok !== autoReqToken) return;             // superada: não mexe no estado
     lastAutoKey = "";                               // deixa tentar de novo no próximo move
     if (autoResolved) { autoResolved = false; refreshTiles(); }
     syncInputs(); updateLegend();
@@ -622,7 +631,7 @@ async function copy(text, msg) {
   } catch (e) { toast("Não consegui copiar — copie da barra de endereço"); }
 }
 $("btn-copy-tiles").addEventListener("click", () => copy(tileUrl(true), "URL de tiles copiada"));
-$("btn-copy-link").addEventListener("click", () => { writeHash(); setTimeout(() => copy(location.href, "Link desta vista copiado"), 60); });
+$("btn-copy-link").addEventListener("click", () => { commitHash(); copy(location.href, "Link desta vista copiado"); });
 
 // ── Busca (Nominatim / OSM) ──────────────────────────────────────────────────
 async function search() {
