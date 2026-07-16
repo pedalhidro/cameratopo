@@ -14,7 +14,8 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
 - `ee_source.py` — fonte `dem=ee`: a MESMA composição como expressão Earth
   Engine (getMapId + proxy dos PNGs; a referência canônica rodando de verdade).
   Auth por ADC — **nenhum segredo no repo**: no Cloud Run, deploy com
-  `--service-account` de uma SA com `roles/earthengine.viewer` +
+  `--service-account` de uma SA com `roles/earthengine.writer` (o getMapId
+  precisa de `earthengine.maps.create`, que o viewer NÃO tem) +
   `serviceusage.serviceUsageConsumer` num projeto REGISTRADO no EE
   (`CAMERATOPO_EE_PROJECT`, default `pedal-hidrografico`); local, ADC do
   gcloud. mapids expiram ~4 h → cache TTL 3 h com double-checked lock, LRU 64

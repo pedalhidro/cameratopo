@@ -11,7 +11,8 @@ Autenticação: Application Default Credentials — NENHUM segredo no repo (o
 serviço roda no Cloud Run com `--service-account`; localmente, `gcloud auth
 application-default login`). O projeto (CAMERATOPO_EE_PROJECT) precisa estar
 registrado no Earth Engine e a service account precisa de
-roles/earthengine.viewer + serviceusage.serviceUsageConsumer.
+roles/earthengine.writer + serviceusage.serviceUsageConsumer (o getMapId
+exige `earthengine.maps.create`, que só o writer tem — o viewer não basta).
 
 Por que PROXY e não redirect: as URLs de mapid EXPIRAM (~4 h). Proxiando, a
 expiração vira problema do servidor (refresh sob lock) e os tiles ganham o
