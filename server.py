@@ -14,7 +14,9 @@ Endpoint:
         slopeMax           declividade (m/m) que satura em preto. `auto` = p98.
         slopeGamma         γ do realce de declividade (default 1.2).
         cycles             quantas vezes a paleta se repete na faixa (default 1).
-        dem                fabdem (default) | sp (DEM de SP ~5 m).
+        dem                fabdem (default) | sp (DEM de SP ~5 m) | ee (FABDEM
+                           renderizado pelo Google Earth Engine — proxy; ver
+                           ee_source.py; requer ADC com acesso ao EE).
         ss                 teto da superamostragem no zoom afastado, em px por
                            lado (default 512, máx 1024). Mais = declividade mais
                            perto do nativo (mais textura), mais CPU/rede.
@@ -31,6 +33,7 @@ import os
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+import ee_source
 import render
 
 app = Flask(__name__)
@@ -72,6 +75,18 @@ def _fnum(name):
         return None
 
 
+def _dem_arg():
+    """Fonte da query: fabdem (default) | sp | ee."""
+    v = (request.args.get("dem") or "").lower()
+    return v if v in ("sp", "ee") else "fabdem"
+
+
+def _stats_dem(dem):
+    """A fonte `ee` é o MESMO FABDEM dos COGs — percentis vêm do caminho local
+    (sem reduceRegion no EE: zero latência extra, zero quota)."""
+    return "fabdem" if dem == "ee" else dem
+
+
 def _resolve_params(dem):
     """Resolve os params da query, substituindo `auto`/ausente pelos percentis
     cacheados da região de referência. Retorna dict pronto pro render."""
@@ -80,7 +95,7 @@ def _resolve_params(dem):
     slope_max = _fnum("slopeMax")
 
     if elev_min is None or elev_max is None or slope_max is None:
-        st = render.auto_stats(dem)
+        st = render.auto_stats(_stats_dem(dem))
         if elev_min is None:
             elev_min = st["elevMin"]
         if elev_max is None:
@@ -159,8 +174,9 @@ def stats():
     do mapa — alimenta o botão "Fixar valores desta vista" e o modo "auto segue a
     tela" da UI. A UI congela
     esses números explícitos na querystring dos tiles, então continua uniforme
-    (sem costura). Query: bbox=oeste,sul,leste,norte (graus) & dem=fabdem|sp."""
-    dem = "sp" if (request.args.get("dem") or "").lower() == "sp" else "fabdem"
+    (sem costura). Query: bbox=oeste,sul,leste,norte (graus) & dem=fabdem|sp|ee
+    (`ee` usa os percentis do fabdem local — mesmos dados)."""
+    dem = _stats_dem(_dem_arg())
     raw = request.args.get("bbox") or ""
     try:
         w, s, e, n = (float(v) for v in raw.split(","))
@@ -198,16 +214,23 @@ def _json_cors(obj, status):
 
 @app.get("/<int:z>/<int:x>/<int:y>.png")
 def tile(z, x, y):
-    dem = "sp" if (request.args.get("dem") or "").lower() == "sp" else "fabdem"
+    dem = _dem_arg()
 
     # Chave de cache/ETag: z/x/y + params já resolvidos (querystring canônica).
     p = _resolve_params(dem)
     # `rv` (versão do renderizador) na chave/ETag: senão, mudar a matemática do
     # render mantém o mesmo ETag → 304 → navegador/CDN servem o PNG antigo.
-    key = (f"rv{render.RENDER_VERSION}/{dem}/{z}/{x}/{y}"
-           f"?e={p['elev_min']:.3f},{p['elev_max']:.3f}"
-           f"&s={p['slope_max']:.6f}&g={p['gamma']:.3f}&c={p['cycles']}"
-           f"&ss={p['max_read']}")
+    # A fonte `ee` tem versão própria (EE_VERSION): `ss` não se aplica a ela e
+    # a expressão EE evolui independente do render local.
+    if dem == "ee":
+        key = (f"ee{ee_source.EE_VERSION}/{z}/{x}/{y}"
+               f"?e={p['elev_min']:.3f},{p['elev_max']:.3f}"
+               f"&s={p['slope_max']:.6f}&g={p['gamma']:.3f}&c={p['cycles']}")
+    else:
+        key = (f"rv{render.RENDER_VERSION}/{dem}/{z}/{x}/{y}"
+               f"?e={p['elev_min']:.3f},{p['elev_max']:.3f}"
+               f"&s={p['slope_max']:.6f}&g={p['gamma']:.3f}&c={p['cycles']}"
+               f"&ss={p['max_read']}")
     etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
 
     if not (MIN_ZOOM <= z <= MAX_ZOOM):
@@ -220,12 +243,15 @@ def tile(z, x, y):
     body = render.cache_get(key)
     if body is None:
         try:
-            body = render.render_tile(
-                dem, x, y, z,
-                elev_min=p["elev_min"], elev_max=p["elev_max"],
-                slope_max=p["slope_max"], gamma=p["gamma"], cycles=p["cycles"],
-                max_read=p["max_read"],
-            )
+            if dem == "ee":
+                body = ee_source.fetch_tile(z, x, y, p)
+            else:
+                body = render.render_tile(
+                    dem, x, y, z,
+                    elev_min=p["elev_min"], elev_max=p["elev_max"],
+                    slope_max=p["slope_max"], gamma=p["gamma"], cycles=p["cycles"],
+                    max_read=p["max_read"],
+                )
         except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
             app.logger.warning("render %s falhou: %s", key, exc)
             body = None

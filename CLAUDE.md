@@ -11,12 +11,28 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
 - `server.py` — Flask: `GET /{z}/{x}/{y}.png` (tiles), `GET /` + `/index.html`
   (UI), `GET /vendor/<p>`, `GET /stats` (percentis por bbox), `GET /health`.
 - `render.py` — leitura de COG (rio-tiler//vsicurl) + declividade + paleta.
+- `ee_source.py` — fonte `dem=ee`: a MESMA composição como expressão Earth
+  Engine (getMapId + proxy dos PNGs; a referência canônica rodando de verdade).
+  Auth por ADC — **nenhum segredo no repo**: no Cloud Run, deploy com
+  `--service-account` de uma SA com `roles/earthengine.viewer` +
+  `serviceusage.serviceUsageConsumer` num projeto REGISTRADO no EE
+  (`CAMERATOPO_EE_PROJECT`, default `pedal-hidrografico`); local, ADC do
+  gcloud. mapids expiram ~4 h → cache TTL 3 h com double-checked lock, LRU 64
+  chaves quantizadas (mesma precisão do ETag — jitter de slider não cunha
+  mapid). `slopeMax` é m/m; `ee.Terrain.slope` dá GRAUS → `tan(rad(·))` antes
+  de normalizar. `/stats?dem=ee` usa os percentis do fabdem LOCAL (mesmos
+  dados; zero quota EE). Sem costura por construção (params moram no mapid).
+  Falha de EE/rede → tile transparente, como as outras fontes. Versão própria
+  (`EE_VERSION`) na chave/ETag — bumpe ao mudar a expressão EE (independente do
+  `RENDER_VERSION`).
 - `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet e IBM
   Plex Mono **vendorados** em `web/vendor/` (nada de CDN), strings em PT,
   estado todo no hash da URL, crossfade de camadas de tile.
 - Deploy: Cloud Run, projeto `pedal-hidrografico`, serviço `cameratopo`
   (`gcloud run deploy cameratopo --source . --region southamerica-east1
-  --allow-unauthenticated --min-instances 0 --max-instances 4 --concurrency 40`).
+  --allow-unauthenticated --min-instances 0 --max-instances 4 --concurrency 40
+  --service-account cameratopo-ee@pedal-hidrografico.iam.gserviceaccount.com`
+  — a SA é o que dá ADC com acesso ao EE pra fonte `dem=ee`).
   Sem auth por design (igual ao resto do ecossistema).
 
 ## Invariantes do render — NÃO regredir (cada um já foi bug)
