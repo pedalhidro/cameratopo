@@ -140,14 +140,41 @@
   #legend .scale { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 4px; }
   #legend .cap { font-size: 10px; color: var(--panel-muted); margin-top: 5px; }
 
-  /* Botão hamburguer (abre/fecha o painel) — sempre visível */
-  #panel-toggle {
-    position: absolute; top: 12px; right: 12px; z-index: 1001; display: block;
+  /* Botões flutuantes sobre o mapa — mesmo visual "glass" do painel.
+     O hamburguer fica no canto sup. direito; localização (📍) e faixa-auto (A)
+     empilham no canto sup. esquerdo (controle Leaflet, logo abaixo do zoom). */
+  .map-btn {
     width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
     background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
-    font-size: 20px; color: var(--panel-fg);
+    font-size: 20px; font-weight: 700; color: var(--panel-fg);
   }
+  .map-btn:active { transform: translateY(1px); }
+  .map-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .map-btn .loc-ico { display: block; pointer-events: none; }
+
+  #panel-toggle { position: absolute; top: 12px; right: 12px; z-index: 1001; }
+
+  /* Pilha de botões (📍/A) no canto sup. esquerdo, abaixo do zoom */
+  .ct-mapbtns { display: flex; flex-direction: column; gap: 8px; border: 0; box-shadow: none; }
+
+  /* Zoom do Leaflet no mesmo visual glass da casa */
+  .leaflet-bar { border: 0; border-radius: 12px; box-shadow: var(--panel-shadow); }
+  .leaflet-touch .leaflet-bar { border: 0; }
+  .leaflet-bar a,
+  .leaflet-touch .leaflet-bar a {
+    width: 44px; height: 40px; line-height: 40px; font-size: 18px;
+    color: var(--panel-fg); background: var(--panel-bg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--panel-line);
+  }
+  .leaflet-bar a:first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
+  .leaflet-bar a:last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border-bottom: 0; }
+  .leaflet-bar a:hover, .leaflet-bar a:focus { background: var(--seg-bg); color: var(--panel-fg); }
+  .leaflet-bar a.leaflet-disabled { opacity: 0.5; }
+  .leaflet-left .leaflet-control { margin-left: 12px; }
+  .leaflet-top .leaflet-control-zoom { margin-top: 12px; }
 
   /* ── Modal de ajuda ──────────────────────────────────────────────────── */
   .modal {
@@ -191,7 +218,7 @@
 <body>
 <div id="map"></div>
 
-<button id="panel-toggle" aria-label="Abrir/fechar controles" title="Menu">☰</button>
+<button id="panel-toggle" class="map-btn" aria-label="Abrir/fechar controles" title="Menu">☰</button>
 
 <aside id="panel" aria-label="Controles da Câmera Topográfica">
   <div class="brand"><h1>Câmera Topográfica</h1></div>
@@ -200,7 +227,6 @@
     <div class="search">
       <input id="q" type="search" placeholder="Buscar lugar…" autocomplete="off" aria-label="Buscar lugar">
       <button class="act icon" id="q-go" title="Buscar" aria-label="Buscar">🔍</button>
-      <button class="act icon" id="q-loc" title="Minha localização" aria-label="Minha localização">📍</button>
     </div>
   </div>
 
@@ -289,9 +315,15 @@
         <i>cmocean.phase</i>, e a <b>declividade</b> escurece a cor
         (escuro = mais íngreme). Tudo é renderizado no servidor como tiles XYZ.</p>
 
-      <h3>Buscar 🔍 / Minha localização 📍</h3>
-      <p>Buscar leva a um lugar (via OpenStreetMap/Nominatim). 📍 centra o mapa na
-        sua posição (o navegador pede permissão).</p>
+      <h3>Buscar 🔍</h3>
+      <p>Leva a um lugar (via OpenStreetMap/Nominatim).</p>
+
+      <h3>Botões do mapa (📍 e A)</h3>
+      <p>No canto superior esquerdo, abaixo do zoom. <b>📍</b> liga/desliga o
+        rastreamento da sua posição ao vivo (o navegador pede permissão): centra
+        no primeiro sinal e o ponto passa a acompanhar você; toque de novo pra
+        parar. <b>A</b> liga/desliga a <i>Faixa automática</i> (a mesma caixa do
+        painel). Ambos ficam <b>realçados</b> quando ativos.</p>
 
       <h3>Modelo de elevação (DEM)</h3>
       <p><b>FABDEM</b> (~30 m) tem cobertura global. <b>SP · 5 m</b> é o DEM de São
@@ -640,6 +672,7 @@ function syncInputs() {
   $("emin").placeholder = $("emax").placeholder = showNums ? "" : "auto";
   $("emin").disabled = $("emax").disabled = P.auto;
   $("auto").checked = P.auto;
+  const autoBtn = $("btn-auto"); if (autoBtn) autoBtn.setAttribute("aria-pressed", String(P.auto));
   syncSlopeWidget();
   $("gamma").value = gammaToStep(P.gamma); $("gamma-val").textContent = fmtGamma(P.gamma);
   $("cycles").value = P.cycles; $("cycles-val").textContent = P.cycles;
@@ -649,9 +682,8 @@ function syncInputs() {
   for (const b of $("seg-ss").children) b.setAttribute("aria-pressed", String(Number(b.dataset.ss) === P.ss));
 }
 
-// auto (segue a tela)
-$("auto").addEventListener("change", (e) => {
-  P.auto = e.target.checked;
+// auto (segue a tela) — a caixa do painel e o botão "A" do mapa dividem a lógica
+function applyAutoToggle() {
   if (P.auto) {                       // liga: re-estima já pra vista atual
     autoResolved = false; lastAutoKey = "";
     syncInputs(); updateLegend(); refreshTiles(); runAutoEstimate();
@@ -659,7 +691,8 @@ $("auto").addEventListener("change", (e) => {
     syncInputs(); updateLegend(); refreshTiles();
   }
   writeHash();
-});
+}
+$("auto").addEventListener("change", (e) => { P.auto = e.target.checked; applyAutoToggle(); });
 // elevação
 function onElev() {
   const lo = parseFloat($("emin").value), hi = parseFloat($("emax").value);
@@ -764,19 +797,66 @@ async function search() {
 $("q-go").addEventListener("click", search);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); search(); } });
 
-// ── Minha localização ────────────────────────────────────────────────────────
+// ── Botões flutuantes: localização (📍) + faixa automática (A) ────────────────
+// Empilham no canto sup. esquerdo (controle Leaflet), logo abaixo do zoom, no
+// mesmo visual glass do painel — fora do sidebar.
+const CtMapButtons = L.Control.extend({
+  options: { position: "topleft" },
+  onAdd() {
+    const d = L.DomUtil.create("div", "ct-mapbtns");
+    d.innerHTML =
+      '<button id="btn-locate" class="map-btn" type="button" title="Minha localização (rastrear ao vivo)" aria-label="Minha localização" aria-pressed="false">' +
+        // Ícone "location arrow" (o mesmo do amora, via leaflet-locatecontrol).
+        // fill=currentColor → herda a cor do botão: acompanha tema claro/escuro
+        // e vira branco quando realçado (rastreando).
+        '<svg class="loc-ico" viewBox="0 0 512 512" width="21" height="21" fill="currentColor" aria-hidden="true"><path d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>' +
+      '</button>' +
+      '<button id="btn-auto" class="map-btn" type="button" title="Faixa automática (segue a tela)" aria-label="Faixa automática" aria-pressed="false">A</button>';
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.disableScrollPropagation(d);
+    return d;
+  },
+});
+map.addControl(new CtMapButtons());
+
+// Localização: toque LIGA o rastreio ao vivo (watchPosition via map.locate),
+// toque de novo DESLIGA. Centra/zooma só no PRIMEIRO fix (como o amora — depois
+// só o marcador acompanha; o mapa não fica re-zoomando a cada update). O botão
+// fica realçado (aria-pressed) enquanto rastreia.
 let userMarker = null, userAccuracy = null;
-$("q-loc").addEventListener("click", () => {
+let locateActive = false, locateCentered = false;
+function stopLocate() {
+  locateActive = false;
+  map.stopLocate();
+  $("btn-locate").setAttribute("aria-pressed", "false");
+  if (userMarker) { userMarker.remove(); userMarker = null; }
+  if (userAccuracy) { userAccuracy.remove(); userAccuracy = null; }
+}
+function startLocate() {
+  locateActive = true; locateCentered = false;
+  $("btn-locate").setAttribute("aria-pressed", "true");
   toast("Localizando…");
-  map.locate({ setView: true, maxZoom: 16, enableHighAccuracy: true, timeout: 12000 });
-});
+  map.locate({ watch: true, setView: false, enableHighAccuracy: true, maximumAge: 5000, timeout: 12000 });
+}
+$("btn-locate").addEventListener("click", () => (locateActive ? stopLocate() : startLocate()));
 map.on("locationfound", (e) => {
-  if (userMarker) userMarker.remove();
-  if (userAccuracy) userAccuracy.remove();
-  userAccuracy = L.circle(e.latlng, { radius: e.accuracy, color: "#c0417d", weight: 1, opacity: 0.5, fillOpacity: 0.08 }).addTo(map);
-  userMarker = L.circleMarker(e.latlng, { radius: 7, color: "#fff", weight: 2, fillColor: "#c0417d", fillOpacity: 1 }).addTo(map);
+  if (!locateActive) return;
+  if (userAccuracy) userAccuracy.setLatLng(e.latlng).setRadius(e.accuracy);
+  else userAccuracy = L.circle(e.latlng, { radius: e.accuracy, color: "#c0417d", weight: 1, opacity: 0.5, fillOpacity: 0.08 }).addTo(map);
+  if (userMarker) userMarker.setLatLng(e.latlng);
+  else userMarker = L.circleMarker(e.latlng, { radius: 7, color: "#fff", weight: 2, fillColor: "#c0417d", fillOpacity: 1 }).addTo(map);
+  if (!locateCentered) { locateCentered = true; map.setView(e.latlng, Math.max(map.getZoom(), 16)); }
 });
-map.on("locationerror", () => toast("Não consegui obter sua localização"));
+map.on("locationerror", () => {
+  if (!locateActive) return;
+  // Erro ANTES do primeiro fix (permissão negada / timeout inicial) → desliga e
+  // avisa. Já rastreando, um erro transitório é ignorado: o watchPosition segue
+  // ativo e se recupera sozinho no próximo fix (não derrubar o rastreio inteiro).
+  if (!locateCentered) { toast("Não consegui obter sua localização"); stopLocate(); }
+});
+
+// Faixa automática: o botão "A" espelha a caixa do painel (realçado = ligada)
+$("btn-auto").addEventListener("click", () => { P.auto = !P.auto; applyAutoToggle(); });
 
 // ── Modal de ajuda ───────────────────────────────────────────────────────────
 const helpModal = $("help-modal");
