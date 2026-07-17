@@ -233,9 +233,9 @@
   <div class="row">
     <label>Modelo de elevação (DEM)</label>
     <div class="seg" id="seg-dem" role="group" aria-label="Modelo de elevação">
-      <button data-dem="fabdem" aria-pressed="true">FABDEM · global</button>
+      <button data-dem="fabdem" aria-pressed="false">FABDEM · global</button>
       <button data-dem="sp" aria-pressed="false">SP · 5 m</button>
-      <button data-dem="ee" aria-pressed="false">FABDEM · GEE</button>
+      <button data-dem="ee" aria-pressed="true">FABDEM · GEE</button>
     </div>
   </div>
 
@@ -397,7 +397,7 @@ const CMO_PHASE = [
 
 const DEFAULTS = {
   center: [-23.55, -46.63], zoom: 13,
-  dem: "fabdem", auto: true,
+  dem: "ee", auto: true,
   emin: 700, emax: 1200, slope: 46,
   gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
   base: "osm", slopeUnit: "pct",
@@ -433,7 +433,8 @@ function readHash() {
     const z = parseInt(m[0], 10), la = parseFloat(m[1]), lo = parseFloat(m[2]);
     if (Number.isFinite(z) && Number.isFinite(la) && Number.isFinite(lo)) { P.zoom = z; P.center = [la, lo]; }
   }
-  if (h.get("dem") === "sp" || h.get("dem") === "ee") P.dem = h.get("dem");
+  const dem = h.get("dem");   // aceita as três (o default virou "ee" → precisa honrar fabdem explícito)
+  if (dem === "sp" || dem === "ee" || dem === "fabdem") P.dem = dem;
   if (h.has("auto")) P.auto = h.get("auto") === "1";
   P.emin = num("emin", P.emin); P.emax = num("emax", P.emax);
   P.slope = num("slope", P.slope);
