@@ -1008,9 +1008,8 @@ function updateLegend() {
     for (let i = 0; i <= n; i++)
       stops.push(`${rgb(CMO_PHASE[i])} ${(((c + i / n) / cyc) * 100).toFixed(2)}%`);
   colorbarEl.style.background = `linear-gradient(to right, ${stops.join(",")})`;
-  const showNums = !P.auto || autoResolved;
-  document.getElementById("lg-min").textContent = showNums ? `${Math.round(P.emin)} m` : "auto";
-  document.getElementById("lg-max").textContent = showNums ? `${Math.round(P.emax)} m` : "auto";
+  document.getElementById("lg-min").textContent = `${Math.round(P.emin)} m`;
+  document.getElementById("lg-max").textContent = `${Math.round(P.emax)} m`;
 }
 
 map.on("zoomend moveend", () => { writeHash(); scheduleAutoEstimate(); });
@@ -1040,11 +1039,11 @@ const SLOPE_UNITS = {
 };
 const slopeCfg = () => SLOPE_UNITS[P.slopeUnit] || SLOPE_UNITS.pct;
 function syncSlopeWidget() {
-  const u = slopeCfg(), sl = $("slope"), showNums = !P.auto || autoResolved;
+  const u = slopeCfg(), sl = $("slope");
   sl.min = u.min; sl.max = u.max; sl.step = u.step;
   sl.value = Math.max(u.min, Math.min(u.max, u.toDisp(P.slope)));
   sl.disabled = P.auto;
-  $("slope-val").textContent = showNums ? `${u.toDisp(P.slope)} ${u.label}` : "auto";
+  $("slope-val").textContent = `${u.toDisp(P.slope)} ${u.label}`;
   for (const b of $("seg-slopeunit").children)
     b.setAttribute("aria-pressed", String(b.dataset.unit === P.slopeUnit));
 }
@@ -1059,10 +1058,11 @@ const fmtGamma = (g) => g < 0.995 ? g.toFixed(3) : (g >= 9.995 ? g.toFixed(1) : 
 // Reflete o estado nos widgets. Em auto ainda não resolvido, os campos de
 // elevação ficam vazios com placeholder "auto"; resolvido, mostram os números.
 function syncInputs() {
-  const showNums = !P.auto || autoResolved;
-  $("emin").value = showNums ? Math.round(P.emin) : "";
-  $("emax").value = showNums ? Math.round(P.emax) : "";
-  $("emin").placeholder = $("emax").placeholder = showNums ? "" : "auto";
+  // Sempre mostra os NÚMEROS vigentes (o realce do botão A é o que indica o
+  // modo auto): a estimativa preenche quando chega, e desligar o auto congela
+  // exatamente o que está na tela — nunca volta pro valor anterior.
+  $("emin").value = Math.round(P.emin);
+  $("emax").value = Math.round(P.emax);
   $("emin").disabled = $("emax").disabled = P.auto;
   const autoBtn = $("btn-auto"); if (autoBtn) autoBtn.setAttribute("aria-pressed", String(P.auto));
   syncSlopeWidget();
