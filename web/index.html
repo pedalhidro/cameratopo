@@ -6,6 +6,12 @@
 <title>Câmera Topográfica · Pedal Hidrográfico</title>
 <meta name="description" content="Relevo de São Paulo pela Câmera Topográfica — elevação em paleta cíclica realçada pela declividade. Navegue o mapa e ajuste os parâmetros.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%E2%9B%B0%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0b0d10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <style>
   /* IBM Plex Mono vendorado (sem CDN externa) */
@@ -50,54 +56,65 @@
   #map { position: absolute; inset: 0; background: #0b0d10; }
 
   /* ── Painéis (controles ☰ e camadas ⧉) ───────────────────────────────── */
+  /* No máximo 1/3 da tela por padrão; a alça (.grip) redimensiona na vertical */
   #panel, #layers-panel {
     position: absolute; top: 116px; right: 12px; z-index: 1000;
     width: 324px; max-width: calc(100vw - 24px);
-    max-height: calc(100vh - 128px); overflow-y: auto;
+    max-height: 33vh; overflow-y: auto;
     background: var(--panel-bg);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); border-radius: 14px;
     box-shadow: var(--panel-shadow);
-    padding: 14px 16px 16px;
+    padding: 10px 12px 12px;   /* apertado: tem que caber num celular */
   }
   #panel.collapsed, #layers-panel.collapsed { display: none; }
   #panel::-webkit-scrollbar, #layers-panel::-webkit-scrollbar { width: 8px; }
   #panel::-webkit-scrollbar-thumb, #layers-panel::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 8px; }
 
-  /* Linhas do painel de camadas (como no amora: ▲▼ · ligar · nome · opacidade) */
-  .layer-row { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-bottom: 1px solid var(--panel-line); }
+  /* Linhas do painel de camadas (como no amora: ▲▼ · ligar · nome · opacidade).
+     Compactas de propósito: 16 camadas têm que caber num celular — uma linha
+     por camada (nome com reticências, nunca quebra), controles miúdos. */
+  .layer-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; border-bottom: 1px solid var(--panel-line); }
   .layer-row:last-child { border-bottom: 0; }
-  .ly-move { display: flex; flex-direction: column; gap: 1px; }
+  .ly-move { display: flex; flex-direction: column; gap: 1px; flex: 0 0 auto; }
   .ly-move button {
-    width: 20px; height: 15px; padding: 0; font-size: 8px; line-height: 1;
+    width: 18px; height: 12px; padding: 0; font-size: 7px; line-height: 1;
     color: var(--panel-muted); background: var(--seg-bg);
-    border: 0; border-radius: 4px; cursor: pointer;
+    border: 0; border-radius: 3px; cursor: pointer;
   }
   .ly-move button:disabled { opacity: 0.3; cursor: default; }
-  .layer-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; flex: 0 0 auto; }
-  .layer-row .ly-name { flex: 1; font-size: 11px; font-weight: 600; line-height: 1.25; }
-  .layer-row input[type="range"] { width: 74px; flex: 0 0 auto; margin: 0; }
+  .layer-row input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; flex: 0 0 auto; margin: 0; }
+  .layer-row .ly-name {
+    flex: 1; min-width: 0; font-size: 10.5px; font-weight: 600; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .layer-row input[type="range"] { width: 64px; flex: 0 0 auto; margin: 0; }
+  .layer-row.loading .ly-name::after { content: " ⏳"; animation: ly-pulse 1.1s infinite; }
+  @keyframes ly-pulse { 50% { opacity: 0.25; } }
+  @media (max-width: 640px) {
+    .layer-row input[type="range"] { width: 84px; }  /* painel ocupa a largura toda */
+  }
 
-  .brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
-  .brand h1 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .brand h1 { font-size: 14px; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
 
-  .row { margin: 12px 0; }
+  .row { margin: 8px 0; }
   .row > label {
     display: block; font-size: 11px; font-weight: 600;
-    color: var(--panel-muted); margin-bottom: 6px;
+    color: var(--panel-muted); margin-bottom: 4px;
   }
 
   /* Busca + minha localização (mesma linha) */
   .search { display: flex; gap: 6px; }
   .search input {
-    flex: 1; min-width: 0; padding: 8px 10px; font-size: 12px;
+    flex: 1; min-width: 0; padding: 6px 9px; font-size: 12px;
     color: var(--panel-fg); background: var(--field-bg);
     border: 1px solid var(--field-line); border-radius: 9px;
   }
-  .search button.icon { flex: 0 0 auto; width: 40px; padding: 8px 0; font-size: 15px; }
+  .search button.icon { flex: 0 0 auto; width: 38px; padding: 6px 0; font-size: 14px; }
 
   input[type="number"] {
-    width: 100%; padding: 8px 10px; font-size: 13px; color: var(--panel-fg);
+    width: 100%; padding: 6px 9px; font-size: 12.5px; color: var(--panel-fg);
     background: var(--field-bg); border: 1px solid var(--field-line);
     border-radius: 9px; -moz-appearance: textfield;
   }
@@ -114,7 +131,7 @@
   /* Segmentado (DEM, base, unidade) */
   .seg { display: flex; background: var(--seg-bg); border-radius: 9px; padding: 3px; gap: 3px; }
   .seg button {
-    flex: 1; padding: 7px 6px; font-size: 11.5px; font-weight: 600;
+    flex: 1; padding: 5px 6px; font-size: 11px; font-weight: 600;
     border: 0; border-radius: 7px; background: transparent; color: var(--panel-fg);
     cursor: pointer;
   }
@@ -129,7 +146,7 @@
   .btns { display: grid; gap: 7px; }
   button.act {
     display: flex; align-items: center; justify-content: center; gap: 7px;
-    padding: 9px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+    padding: 7px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
     color: var(--panel-fg); background: var(--field-bg);
     border: 1px solid var(--field-line); border-radius: 9px;
   }
@@ -145,11 +162,11 @@
   }
   .url-label[hidden] { display: none; }
 
-  hr.sep { border: 0; border-top: 1px solid var(--panel-line); margin: 14px 0 2px; }
+  hr.sep { border: 0; border-top: 1px solid var(--panel-line); margin: 9px 0 1px; }
 
   /* ── Legenda / colorbar (dentro do painel, embaixo) ──────────────────── */
   #legend { margin-top: 6px; }
-  #legend .lt { font-size: 11px; font-weight: 600; color: var(--panel-muted); margin-bottom: 6px; }
+  #legend .lt { font-size: 11px; font-weight: 600; color: var(--panel-muted); margin-bottom: 4px; }
   #colorbar { height: 12px; border-radius: 4px; border: 1px solid var(--panel-line); }
   #legend .scale { display: flex; justify-content: space-between; font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 4px; }
   #legend .cap { font-size: 10px; color: var(--panel-muted); margin-top: 5px; }
@@ -171,8 +188,80 @@
   #panel-toggle { position: absolute; top: 12px; right: 12px; z-index: 1001; }
   #layers-toggle { position: absolute; top: 64px; right: 12px; z-index: 1001; font-size: 17px; }
 
-  /* Pilha de botões (📍/A) no canto sup. esquerdo, abaixo do zoom */
-  .ct-mapbtns { display: flex; flex-direction: column; gap: 8px; border: 0; box-shadow: none; }
+  /* Pilha de botões (📍/A/desenho/olho) no canto sup. esquerdo, abaixo do zoom */
+  .ct-mapbtns { display: flex; flex-direction: column; gap: 8px; border: 0; box-shadow: none; position: relative; }
+
+  /* Fileira de ferramentas de desenho — à direita do lápis ✏ */
+  #draw-tools { position: absolute; left: 52px; z-index: 1002; display: flex; flex-direction: column; gap: 8px; }
+  #draw-tools[hidden] { display: none; }
+
+  /* Bolinha da cor atual (botão de cor) e flyout com as opções */
+  .color-dot { display: block; width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(127,127,127,0.55); pointer-events: none; }
+  #color-flyout {
+    position: absolute; left: 52px; z-index: 1002; display: flex;
+    flex-direction: column; gap: 9px; width: 190px;
+    padding: 10px 12px; border-radius: 12px;
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
+  }
+  #color-flyout[hidden] { display: none; }
+  .cf-swatches { display: flex; flex-wrap: wrap; gap: 7px; }
+  .cf-swatches button {
+    width: 24px; height: 24px; border-radius: 50%; cursor: pointer; padding: 0;
+    border: 2px solid rgba(127,127,127,0.55);
+  }
+  .cf-swatches button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cf-slider label { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 600; color: var(--panel-muted); margin-bottom: 2px; }
+  .cf-slider input { width: 100%; accent-color: var(--accent); margin: 0; }
+
+  /* Medidas do desenho — topo central, pílula glass, não intercepta o mapa */
+  #measure {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 1001; pointer-events: none; max-width: 78vw;
+    padding: 8px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  #measure[hidden] { display: none; }
+  #map.drawing { cursor: crosshair; }
+
+  /* Popup dos desenhos: o mais apertado possível */
+  .draw-pop .leaflet-popup-content-wrapper { border-radius: 10px; }
+  .draw-pop .leaflet-popup-content { margin: 7px 9px; font-size: 12px; line-height: 1.3; }
+  .draw-pop-row { display: flex; align-items: center; gap: 8px; }
+  .draw-pop-del {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; cursor: pointer;
+    border: 1px solid #b33; border-radius: 8px; background: transparent; color: #b33;
+  }
+  .draw-pop-del svg { pointer-events: none; }
+
+  /* Marca d'água "Câmera Topográfica" — à direita da escala, embaixo */
+  .leaflet-bottom.leaflet-left { display: flex; align-items: flex-end; }
+  .ct-wordmark {
+    order: 9;   /* flex: depois da escala (o Leaflet prepende nos cantos de baixo) */
+    margin-left: 10px; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700; letter-spacing: -0.01em;
+    color: var(--panel-fg); background: var(--panel-bg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); pointer-events: none; white-space: nowrap;
+  }
+
+  /* Modo imersivo (👁): só o mapa + o olho, que vira o INVERSO do que está
+     embaixo (mix-blend-mode difference com traço branco, sem fundo). */
+  body.immersive #panel-toggle, body.immersive #layers-toggle,
+  body.immersive #panel, body.immersive #layers-panel { display: none; }
+  /* na coluna esquerda, visibility (não display): o olho NÃO pode mudar de lugar */
+  body.immersive .leaflet-control-zoom, body.immersive .leaflet-control-rotate,
+  body.immersive .leaflet-control-scale, body.immersive .ct-wordmark,
+  body.immersive .ct-mapbtns .map-btn:not(#btn-eye),
+  body.immersive #draw-tools, body.immersive #color-flyout { visibility: hidden; }
+  body.immersive #btn-eye {
+    background: transparent; border-color: transparent; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    color: #fff; mix-blend-mode: difference;
+  }
 
   /* Zoom do Leaflet no mesmo visual glass da casa */
   .leaflet-bar { border: 0; border-radius: 12px; box-shadow: var(--panel-shadow); }
@@ -202,16 +291,30 @@
   .modal-card {
     background: var(--panel-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
     border: 1px solid var(--panel-line); border-radius: 16px; box-shadow: var(--panel-shadow);
-    width: 100%; max-width: 540px; max-height: 85vh; overflow-y: auto; padding: 20px 22px;
+    width: 100%; max-width: 540px; max-height: 33vh; overflow-y: auto; padding: 14px 16px;
   }
-  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+
+  /* Alça de redimensionar (fundo dos painéis/modal): fixa embaixo do scroll,
+     arrasta com dedo ou mouse (pointer events; touch-action none). */
+  .grip {
+    position: sticky; bottom: -14px; z-index: 5;
+    margin: 6px -16px -14px; padding: 5px 0 7px;
+    background: var(--panel-bg); cursor: ns-resize; touch-action: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  .grip::before {
+    content: ""; display: block; width: 40px; height: 4px; margin: 0 auto;
+    border-radius: 999px; background: var(--panel-muted); opacity: 0.55;
+  }
+  #panel .grip, #layers-panel .grip { bottom: -12px; margin: 6px -12px -12px; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .modal-head h2 { font-size: 15px; font-weight: 700; margin: 0; }
   #help-close {
     border: 0; background: transparent; color: var(--panel-fg);
     width: 34px; height: 34px; border-radius: 8px; font-size: 16px; cursor: pointer;
   }
   #help-close:hover { background: var(--seg-bg); }
-  .modal-body h3 { font-size: 12px; font-weight: 700; color: var(--accent); margin: 14px 0 3px; }
+  .modal-body h3 { font-size: 12px; font-weight: 700; color: var(--accent); margin: 10px 0 2px; }
   .modal-body p { font-size: 12px; color: var(--panel-muted); margin: 0 0 4px; line-height: 1.5; }
   .modal-body code { font-size: 11px; background: var(--seg-bg); padding: 1px 4px; border-radius: 4px; }
   .modal-body a { color: var(--accent); text-decoration: none; }
@@ -225,8 +328,18 @@
   }
   .toast.show { opacity: 1; }
 
+  /* Celular: painéis e modal viram BOTTOM-SHEET (colados embaixo, cantos de
+     cima arredondados) e a alça de redimensionar vai pro TOPO da folha (o JS
+     move o nó .grip pro começo e inverte a conta do arrasto). */
   @media (max-width: 640px) {
-    #panel, #layers-panel { right: 12px; left: 12px; width: auto; }
+    #panel, #layers-panel {
+      top: auto; bottom: 0; left: 0; right: 0; width: auto; max-width: none;
+      border-radius: 14px 14px 0 0; border-bottom: 0;
+    }
+    .modal { align-items: flex-end; padding: 0; }
+    .modal-card { max-width: none; border-radius: 16px 16px 0 0; }
+    .grip { bottom: auto; top: -14px; margin: -14px -16px 6px; padding: 7px 0 5px; }
+    #panel .grip, #layers-panel .grip { top: -10px; margin: -10px -12px 6px; }
   }
 </style>
 </head>
@@ -239,6 +352,7 @@
 <aside id="layers-panel" class="collapsed" aria-label="Camadas do mapa">
   <div class="brand"><h1>Camadas</h1></div>
   <div id="layer-rows"></div>
+  <div class="grip" role="separator" aria-label="Redimensionar painel" title="Arraste para redimensionar"></div>
 </aside>
 
 <aside id="panel" aria-label="Controles da Câmera Topográfica">
@@ -261,10 +375,6 @@
   </div>
 
   <hr class="sep">
-
-  <div class="row">
-    <label class="check"><input type="checkbox" id="auto" checked><span>Faixa automática (segue a tela)</span></label>
-  </div>
 
   <div class="row two">
     <div class="fld"><label for="emin">Elevação mín. (m)</label><input type="number" id="emin" step="10" inputmode="numeric"></div>
@@ -299,14 +409,6 @@
 
   <hr class="sep">
 
-  <div class="row">
-    <label>Mapa base</label>
-    <div class="seg" id="seg-base" role="group" aria-label="Mapa base">
-      <button data-base="osm" aria-pressed="true">Mapa</button>
-      <button data-base="satellite" aria-pressed="false">Satélite</button>
-    </div>
-  </div>
-
   <div class="btns">
     <button class="act" id="btn-copy-tiles">⧉ Copiar URL de tiles (XYZ)</button>
     <div id="tiles-url" class="url-label" hidden></div>
@@ -323,9 +425,10 @@
     <div class="cap">escuro = mais íngreme</div>
   </div>
 
-  <div class="btns" style="margin-top:14px">
+  <div class="btns" style="margin-top:9px">
     <button class="act" id="btn-help">❔ Ajuda</button>
   </div>
+  <div class="grip" role="separator" aria-label="Redimensionar painel" title="Arraste para redimensionar"></div>
 </aside>
 
 <div id="help-modal" class="modal" hidden>
@@ -339,29 +442,49 @@
       <h3>Buscar 🔍</h3>
       <p>Leva a um lugar (via OpenStreetMap/Nominatim).</p>
 
+      <h3>Girar o mapa</h3>
+      <p>No celular, gire com <b>dois dedos</b>. No computador, segure
+        <b>Ctrl/Cmd</b> e arraste para os lados. A bússola (canto superior
+        esquerdo) desfaz a rotação.</p>
+
       <h3>Camadas ⧉</h3>
       <p>O botão ⧉ (abaixo do ☰) abre o painel de camadas — as mesmas do app
         Câmera Topográfica no Earth Engine: MapBiomas, luzes noturnas, índice de
         aridez, densidade populacional, eleições 2022, cobertura 3G, elevação,
         declives, Posição Topográfica Local, detector de desmorrodouros e rios
-        livres (HydroSHEDS). Cada linha tem <b>▲▼</b> (ordem de empilhamento),
+        livres (HydroSHEDS) — mais os mapas base (OpenStreetMap, Satélite,
+        Híbrido) no fundo e os seus <i>Desenhos</i> no topo.
+        Cada linha tem <b>▲▼</b> (ordem de empilhamento),
         <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. As camadas de
         elevação/declive seguem os parâmetros do painel ☰ (inclusive a faixa
         automática). São renderizadas pelo Earth Engine — a primeira carga de
         uma camada pesada pode demorar alguns segundos.</p>
 
-      <h3>Botões do mapa (📍 e A)</h3>
+      <h3>Botões do mapa (📍 · A · ✏ · 👁)</h3>
       <p>No canto superior esquerdo, abaixo do zoom. <b>📍</b> liga/desliga o
         rastreamento da sua posição ao vivo (o navegador pede permissão): centra
         no primeiro sinal e o ponto passa a acompanhar você; toque de novo pra
-        parar. <b>A</b> liga/desliga a <i>Faixa automática</i> (a mesma caixa do
-        painel). Ambos ficam <b>realçados</b> quando ativos.</p>
+        parar. <b>A</b> liga/desliga a <i>Faixa automática</i> (a faixa de
+        elevação/declive segue a tela). <b>👁</b> é o modo imersivo: esconde
+        todos os controles (só o olho fica, mesclado ao mapa); toque de novo
+        pra voltar. Botões ficam <b>realçados</b> quando ativos.</p>
+
+      <h3>Desenhar no mapa (✏)</h3>
+      <p>O lápis abre as ferramentas: <b>●</b> pontos, <b>╱</b> linha,
+        <b>⬠</b> polígono, <b>cor/traço</b> (10 cores maximamente distinguíveis,
+        espessura, opacidade interna e suavização das linhas), <b>🗑</b> apaga tudo e
+        <b>💾</b> salva como GeoJSON. Cada toque no mapa adiciona um
+        vértice; a <b>medida</b> aparece no topo (linha: comprimento; polígono:
+        perímetro e área). Toque de novo no botão do modo, dê dois toques ou
+        Esc pra <b>concluir</b> (nada se perde). Tocar num desenho pronto
+        mostra a medida e a opção de apagá-lo. A linha <i>Desenhos</i> do
+        painel ⧉ controla visibilidade e opacidade de todos eles.</p>
 
       <h3>Modelo de elevação (DEM)</h3>
       <p><b>FABDEM</b> (~30 m) tem cobertura global. <b>SP · 5 m</b> é o DEM de São
         Paulo, mais detalhado, mas só cobre a região metropolitana.</p>
 
-      <h3>Faixa automática (segue a tela)</h3>
+      <h3>Faixa automática (botão A)</h3>
       <p>Ligada: elevação mín./máx. e declive máximo são recalculados pela porção
         visível a cada navegação (percentis p5–p80 da elevação, p98 da
         declividade) e mostrados esmaecidos. Desligue para travar e editar à mão.</p>
@@ -382,9 +505,10 @@
       <p>Repete a paleta cíclica N vezes ao longo da faixa — vira “curvas de nível”
         coloridas.</p>
 
-      <h3>Opacidade do relevo · Mapa base</h3>
-      <p>Transparência da camada de relevo sobre o mapa (OpenStreetMap) ou o
-        satélite (Esri).</p>
+      <h3>Opacidade do relevo</h3>
+      <p>Transparência da camada de relevo. Os mapas base (OpenStreetMap,
+        Satélite, Híbrido) agora são linhas do painel de camadas ⧉ — dá pra
+        ligar mais de um e regular a opacidade de cada.</p>
 
       <h3>Copiar URL de tiles (XYZ) · Copiar link desta vista</h3>
       <p>A URL de tiles (<code>/{z}/{x}/{y}.png?…</code>) serve pra embutir o relevo
@@ -411,12 +535,15 @@
         <b>cmocean.phase</b> × realce de declividade ·
         <a href="https://amora.pedalhidrografi.co" target="_blank" rel="noopener">Pedal Hidrográfico ↗</a></p>
     </div>
+    <div class="grip" role="separator" aria-label="Redimensionar painel" title="Arraste para redimensionar"></div>
   </div>
 </div>
 
+<div id="measure" hidden></div>
 <div class="toast" id="toast"></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/leaflet-rotate/leaflet-rotate.js"></script>
 <script>
 "use strict";
 
@@ -432,7 +559,7 @@ const DEFAULTS = {
   dem: "ee", auto: true,
   emin: 700, emax: 1200, slope: 46,
   gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
-  base: "osm", slopeUnit: "pct",
+  slopeUnit: "pct", rot: 0,   // rotação do mapa (graus)
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
 };
 
@@ -456,6 +583,10 @@ const SS_CHOICES = [256, 512, 1024];
 // `relevo` é a camada de relevo existente (qualquer fonte), só marcada aqui.
 const EE_LAYER_VERSION = "1";   // = ee_source.EE_LAYERS_VERSION — bump JUNTO
 const EE_LAYERS = [
+  // bases (tiles diretos, não-EE) — fundo da pilha
+  { id: "osm",      label: "OpenStreetMap", base: "osm",      op: 100 },
+  { id: "satelite", label: "Satélite",      base: "satelite", op: 100 },
+  { id: "hibrido",  label: "Híbrido",       base: "hibrido",  op: 100 },
   { id: "aridez-disc",    label: "Índice de aridez (discreto)",      dep: "" },
   { id: "aridez-cont",    label: "Índice de aridez (contínuo)",      dep: "" },
   { id: "mapbiomas-2023", label: "MapBiomas col. 9 — 2023",          dep: "" },
@@ -472,6 +603,8 @@ const EE_LAYERS = [
   { id: "ptl",            label: "Posição Topográfica Local (PTL)",  dep: "" },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
+  // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
+  { id: "desenhos",       label: "Desenhos",                         draw: true, op: 100 },
 ];
 const DEFAULT_STACK = EE_LAYERS.map((l) => l.id);
 const LAYER_BY_ID = Object.fromEntries(EE_LAYERS.map((l) => [l.id, l]));
@@ -487,8 +620,8 @@ const RELIEF_MAX_NATIVE = 17;
 const P = Object.assign({}, DEFAULTS);
 // Estado das camadas (⧉): pilha fundo→topo, ligadas, opacidade por camada.
 P.stack = DEFAULT_STACK.slice();
-P.lyOn = { relevo: true };
-P.lyOp = {};                       // id → % (ausente = DEFAULT_LAYER_OPACITY)
+P.lyOn = { osm: true, relevo: true, desenhos: true };
+P.lyOp = {};                       // id → % (ausente = op do catálogo / DEFAULT)
 
 function readHash() {
   const h = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -505,8 +638,8 @@ function readHash() {
   P.slope = num("slope", P.slope);
   P.gamma = num("gamma", P.gamma); P.cycles = Math.round(num("cycles", P.cycles));
   P.opacity = Math.round(num("op", P.opacity));
-  if (h.get("base") === "satellite") P.base = "satellite";
   if (h.get("su") === "deg") P.slopeUnit = "deg";
+  P.rot = num("rot", 0) % 360;
   const ss = Math.round(num("ss", P.ss));
   if (SS_CHOICES.includes(ss)) P.ss = ss;
 
@@ -514,8 +647,10 @@ function readHash() {
   // Ausente → só o relevo, pilha padrão. As ocultas ficam embaixo na ordem
   // padrão (posição de camada invisível não muda o visual; só a lista).
   P.stack = DEFAULT_STACK.slice();
-  P.lyOn = { relevo: true };
+  P.lyOn = { osm: true, relevo: true, desenhos: true };
   P.lyOp = {};
+  // compat: links antigos com base=satellite (antes do painel ⧉ ter as bases)
+  if (!h.has("ly") && h.get("base") === "satellite") P.lyOn = { satelite: true, relevo: true, desenhos: true };
   if (h.has("ly")) {
     const on = {}, order = [];
     for (const t of h.get("ly").split(",")) {
@@ -550,12 +685,13 @@ function commitHash() {
   q.set("auto", P.auto ? "1" : "0");
   if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
   q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
-  q.set("base", P.base); q.set("su", P.slopeUnit); q.set("ss", P.ss);
-  // Camadas ⧉: só quando difere do padrão (= só o relevo ligado).
+  q.set("su", P.slopeUnit); q.set("ss", P.ss);
+  if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
+  // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
   const seq = P.stack.filter((id) => P.lyOn[id])
     .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
     .join(",");
-  if (seq !== "relevo") q.set("ly", seq);
+  if (seq !== DEFAULT_LY_SEQ) q.set("ly", seq);
   history.replaceState(null, "", "#" + q.toString());
 }
 function writeHash() {
@@ -583,7 +719,16 @@ function tileUrl(absolute) {
 }
 
 // ── Mapa ─────────────────────────────────────────────────────────────────────
-const map = L.map("map", { center: P.center, zoom: P.zoom, minZoom: 2, maxZoom: 22, zoomControl: true, attributionControl: false });
+// Rotação (leaflet-rotate, vendorado): dois dedos girando no touch
+// (touchRotate); no mouse/trackpad, Ctrl/Cmd + arrastar ←→ (handler próprio
+// abaixo — o ctrl-click do macOS vira menu de contexto, então suprimimos o
+// contextmenu só durante o arrasto). A bússola (controle do plugin) reseta.
+const map = L.map("map", {
+  center: P.center, zoom: P.zoom, minZoom: 2, maxZoom: 22,
+  zoomControl: true, attributionControl: false,
+  rotate: true, touchRotate: true, bearing: P.rot,
+  rotateControl: { closeOnZeroBearing: false },
+});
 
 // Um pane por camada (⧉): a PRECEDÊNCIA é o zIndex do pane, recalculado da
 // pilha. Ficam entre a base (tilePane, 200) e os overlays/marcadores (400).
@@ -593,17 +738,30 @@ function applyStackZ() {
 }
 applyStackZ();
 function layerOpacity(id) {
-  return id === "relevo" ? P.opacity
-    : (Number.isFinite(P.lyOp[id]) ? P.lyOp[id] : DEFAULT_LAYER_OPACITY);
+  if (id === "relevo") return P.opacity;
+  if (Number.isFinite(P.lyOp[id])) return P.lyOp[id];
+  const d = LAYER_BY_ID[id].op;
+  return Number.isFinite(d) ? d : DEFAULT_LAYER_OPACITY;
 }
+const DEFAULT_LY_SEQ = "osm:100,relevo,desenhos:100";   // = defaults acima
 
-const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19, attribution: "© OpenStreetMap",
-});
-const satellite = L.tileLayer(
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  { maxZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }
-);
+// Bases (linhas do painel ⧉, panes ly-osm/ly-satelite/ly-hibrido).
+// Híbrido = imagem de satélite + vias + limites/nomes (referência Esri).
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+function makeBaseLayer(kind, pane) {
+  const opts = (extra) => Object.assign({ pane, maxZoom: 19 }, extra);
+  if (kind === "osm")
+    return L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      opts({ attribution: "© OpenStreetMap" }));
+  const imagery = () => L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
+    opts({ attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }));
+  if (kind === "satelite") return imagery();
+  return L.layerGroup([
+    imagery(),
+    L.tileLayer(`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, opts({})),
+    L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, opts({})),
+  ]);
+}
 // Relevo com CROSSFADE: mudar parâmetro/faixa não pode "piscar". Em vez de
 // setUrl (que limpa os tiles → flash), a nova URL entra numa camada nova
 // invisível; quando ELA termina de carregar, faz fade-in e esmaece a antiga.
@@ -627,11 +785,6 @@ function fadeContainer(layer) {
 let active = L.tileLayer(tileUrl(false), reliefOpts(P.opacity / 100));
 let fadeToken = 0;
 
-function applyBase() {
-  (P.base === "satellite" ? osm : satellite).remove();
-  (P.base === "satellite" ? satellite : osm).addTo(map).bringToBack();
-}
-applyBase();
 if (P.lyOn.relevo) active.addTo(map);
 
 let tileTimer = null;
@@ -687,9 +840,38 @@ function eeLayerUrl(id) {
   q.set("v", EE_LAYER_VERSION);
   return `/ee/${id}/{z}/{x}/{y}.png?${q.toString()}`;
 }
+// Indicador de carregamento na linha do painel ⧉ (tiles EE demoram no frio —
+// sem isso "camada não aparece" e parece bug; com o ⏳ dá pra ver que ela vem)
+function wireLoading(tileLayer, id) {
+  tileLayer.on("loading", () => setRowLoading(id, true));
+  tileLayer.on("load", () => setRowLoading(id, false));
+}
+function setRowLoading(id, on) {
+  const row = document.querySelector(`#layer-rows .layer-row[data-id="${id}"]`);
+  if (row) row.classList.toggle("loading", on);
+}
 // Reconcilia o mapa com o estado (ligadas, URLs, opacidades). Idempotente.
 function syncEeLayers() {
   for (const l of EE_LAYERS) {
+    if (l.draw) {          // desenhos: visibilidade/opacidade do pane inteiro
+      const pane = map.getPane("ly-" + l.id);
+      pane.style.display = P.lyOn[l.id] ? "" : "none";
+      pane.style.opacity = String(layerOpacity(l.id) / 100);
+      continue;
+    }
+    if (l.base) {          // bases: tile layer direto (híbrido é um grupo)
+      let ly = eeLayerObjs[l.id];
+      if (P.lyOn[l.id]) {
+        if (!ly) {
+          ly = eeLayerObjs[l.id] = makeBaseLayer(l.base, "ly-" + l.id);
+          if (ly.eachLayer) ly.eachLayer((sub) => wireLoading(sub, l.id));
+          else wireLoading(ly, l.id);
+        }
+        map.getPane("ly-" + l.id).style.opacity = String(layerOpacity(l.id) / 100);
+        if (!map.hasLayer(ly)) ly.addTo(map);
+      } else if (ly && map.hasLayer(ly)) map.removeLayer(ly);
+      continue;
+    }
     if (l.relief) {   // relevo = a camada existente; crossfade cuida da URL
       const on = !!P.lyOn.relevo;
       if (on && !map.hasLayer(active)) { active.addTo(map); crossfadeRelief(tileUrl(false)); }
@@ -706,6 +888,7 @@ function syncEeLayers() {
           maxNativeZoom: 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
           attribution: "Camadas · Google Earth Engine",
         });
+        wireLoading(ly, l.id);
       } else if (ly._url !== url) ly.setUrl(url);
       ly.setOpacity(layerOpacity(l.id) / 100);
       if (!map.hasLayer(ly)) ly.addTo(map);
@@ -746,8 +929,8 @@ function rebuildLayersPanel() {
         P.opacity = v; setReliefOpacity(v / 100); syncInputs();  // espelha o painel ☰
       } else {
         P.lyOp[id] = v;
-        const ly = eeLayerObjs[id];
-        if (ly) ly.setOpacity(v / 100);
+        if (l.base || l.draw) map.getPane("ly-" + id).style.opacity = String(v / 100);
+        else if (eeLayerObjs[id]) eeLayerObjs[id].setOpacity(v / 100);
       }
       writeHash();
     });
@@ -881,18 +1064,16 @@ function syncInputs() {
   $("emax").value = showNums ? Math.round(P.emax) : "";
   $("emin").placeholder = $("emax").placeholder = showNums ? "" : "auto";
   $("emin").disabled = $("emax").disabled = P.auto;
-  $("auto").checked = P.auto;
   const autoBtn = $("btn-auto"); if (autoBtn) autoBtn.setAttribute("aria-pressed", String(P.auto));
   syncSlopeWidget();
   $("gamma").value = gammaToStep(P.gamma); $("gamma-val").textContent = fmtGamma(P.gamma);
   $("cycles").value = P.cycles; $("cycles-val").textContent = P.cycles;
   $("opacity").value = P.opacity; $("opacity-val").textContent = `${P.opacity} %`;
   for (const b of $("seg-dem").children) b.setAttribute("aria-pressed", String(b.dataset.dem === P.dem));
-  for (const b of $("seg-base").children) b.setAttribute("aria-pressed", String(b.dataset.base === P.base));
   for (const b of $("seg-ss").children) b.setAttribute("aria-pressed", String(Number(b.dataset.ss) === P.ss));
 }
 
-// auto (segue a tela) — a caixa do painel e o botão "A" do mapa dividem a lógica
+// auto (segue a tela) — alternado pelo botão "A" flutuante
 function applyAutoToggle() {
   if (P.auto) {                       // liga: re-estima já pra vista atual
     autoResolved = false; lastAutoKey = "";
@@ -902,7 +1083,6 @@ function applyAutoToggle() {
   }
   writeHash();
 }
-$("auto").addEventListener("change", (e) => { P.auto = e.target.checked; applyAutoToggle(); });
 // elevação
 function onElev() {
   const lo = parseFloat($("emin").value), hi = parseFloat($("emax").value);
@@ -951,11 +1131,6 @@ $("seg-dem").addEventListener("click", (e) => {
     syncInputs(); refreshTiles();
   }
   writeHash();
-});
-// base
-$("seg-base").addEventListener("click", (e) => {
-  const b = e.target.closest("button"); if (!b) return;
-  P.base = b.dataset.base; applyBase(); syncInputs(); writeHash();
 });
 // superamostragem (Ajuda → Avançado): muda a querystring dos tiles
 $("seg-ss").addEventListener("click", (e) => {
@@ -1021,7 +1196,26 @@ const CtMapButtons = L.Control.extend({
         // e vira branco quando realçado (rastreando).
         '<svg class="loc-ico" viewBox="0 0 512 512" width="21" height="21" fill="currentColor" aria-hidden="true"><path d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>' +
       '</button>' +
-      '<button id="btn-auto" class="map-btn" type="button" title="Faixa automática (segue a tela)" aria-label="Faixa automática" aria-pressed="false">A</button>';
+      '<button id="btn-auto" class="map-btn" type="button" title="Faixa automática (segue a tela)" aria-label="Faixa automática" aria-pressed="false">A</button>' +
+      '<button id="btn-pencil" class="map-btn" type="button" title="Ferramentas de desenho" aria-label="Ferramentas de desenho" aria-pressed="false">' +
+        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="pointer-events:none"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>' +
+      '</button>' +
+      '<span id="draw-tools" hidden>' +
+        '<button id="btn-draw-point" class="map-btn" type="button" title="Desenhar pontos (toque de novo para sair)" aria-label="Desenhar pontos" aria-pressed="false">●</button>' +
+        '<button id="btn-draw-line" class="map-btn" type="button" title="Desenhar linha (toque de novo para concluir)" aria-label="Desenhar linha" aria-pressed="false">╱</button>' +
+        '<button id="btn-draw-poly" class="map-btn" type="button" title="Desenhar polígono (toque de novo para concluir)" aria-label="Desenhar polígono" aria-pressed="false">⬠</button>' +
+        '<button id="btn-color" class="map-btn" type="button" title="Cor e traço do desenho" aria-label="Cor e traço do desenho"><span class="color-dot"></span></button>' +
+        '<button id="btn-clear" class="map-btn" type="button" title="Apagar todos os desenhos" aria-label="Apagar todos os desenhos">' +
+          '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="pointer-events:none"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>' +
+        '</button>' +
+        '<button id="btn-save" class="map-btn" type="button" title="Salvar desenhos (GeoJSON)" aria-label="Salvar desenhos">' +
+          '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="pointer-events:none"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' +
+        '</button>' +
+      '</span>' +
+      '<button id="btn-eye" class="map-btn" type="button" title="Modo imersivo (esconde os controles)" aria-label="Modo imersivo" aria-pressed="false">' +
+        '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true" style="pointer-events:none"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>' +
+      '</button>' +
+      '<div id="color-flyout" hidden></div>';
     L.DomEvent.disableClickPropagation(d);
     L.DomEvent.disableScrollPropagation(d);
     return d;
@@ -1065,8 +1259,293 @@ map.on("locationerror", () => {
   if (!locateCentered) { toast("Não consegui obter sua localização"); stopLocate(); }
 });
 
-// Faixa automática: o botão "A" espelha a caixa do painel (realçado = ligada)
+// Faixa automática: alternada pelo botão "A" (realçado = ligada)
 $("btn-auto").addEventListener("click", () => { P.auto = !P.auto; applyAutoToggle(); });
+
+// ── Rotação do mapa ──────────────────────────────────────────────────────────
+// Touch: dois dedos girando (touchRotate do leaflet-rotate). Mouse/trackpad:
+// Ctrl/Cmd + arrastar ←→. Desabilitar o dragging JÁ no pointerdown (dispara
+// antes do mousedown que o Leaflet escuta) impede o pan de engatar junto.
+map.on("rotate", () => { P.rot = map.getBearing() % 360; writeHash(); });
+(() => {
+  const el = map.getContainer();
+  let rot = null;   // { x0, b0 } durante o gesto
+  el.addEventListener("pointerdown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+    rot = { x0: e.clientX, b0: map.getBearing() };
+    map.dragging.disable();
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* ponteiro sintético */ }
+    e.preventDefault();
+  }, true);
+  el.addEventListener("pointermove", (e) => {
+    if (rot) map.setBearing(rot.b0 + (e.clientX - rot.x0) * 0.4);   // ~0.4°/px
+  });
+  const endRot = () => { if (rot) { rot = null; map.dragging.enable(); } };
+  el.addEventListener("pointerup", endRot);
+  el.addEventListener("pointercancel", endRot);
+  // ctrl-click no macOS dispara menu de contexto — suprime só durante/com Ctrl
+  el.addEventListener("contextmenu", (e) => { if (rot || e.ctrlKey) e.preventDefault(); });
+})();
+
+// ── Desenho (● ponto · ╱ linha · ⬠ polígono) com medidas ─────────────────────
+// Feito à mão (sem plugin — mantém compat com o leaflet-rotate): clique/toque
+// adiciona vértice; tocar de novo no botão do modo (realçado) ou dois cliques
+// conclui; Esc cancela. Medidas ao vivo na pílula do topo (#measure).
+const DRAW_COLORS = [   // 10 cores maximamente discriminantes (mín ΔE OKLab 0.281)
+  ["#0000e1", "azul"], ["#006900", "verde-escuro"], ["#d2003c", "vermelho"],
+  ["#4b003c", "vinho"], ["#00a5f0", "celeste"], ["#00ff00", "verde-limão"],
+  ["#e1a51e", "âmbar"], ["#c300ff", "roxo"], ["#ffffff", "branco"], ["#000000", "preto"],
+];
+let drawColor = DRAW_COLORS[0][0];
+let drawWeight = 3;       // espessura do traço (px) — borda de ponto/linha/polígono
+let drawFillOp = 20;      // opacidade interna (%) — área do polígono
+let drawSmooth = 0;       // suavização (iterações de Chaikin, 0–4)
+let drawMode = null;      // null | "point" | "line" | "poly"
+let drawVerts = [];
+let drawPreview = null;
+const drawnShapes = [];
+
+const measureEl = $("measure");
+function showMeasure(text) { measureEl.textContent = text; measureEl.hidden = false; }
+function hideMeasure() { measureEl.hidden = true; }
+
+const fmtNum = (v, d) => v.toLocaleString("pt-BR", { maximumFractionDigits: d });
+function fmtLen(m) { return m < 1000 ? `${Math.round(m)} m` : `${fmtNum(m / 1000, 2)} km`; }
+function fmtArea(a) {
+  if (a < 1e4) return `${fmtNum(a, 0)} m²`;
+  if (a < 1e6) return `${fmtNum(a / 1e4, 2)} ha`;
+  return `${fmtNum(a / 1e6, 2)} km²`;
+}
+function pathLen(pts) { let s = 0; for (let i = 1; i < pts.length; i++) s += map.distance(pts[i - 1], pts[i]); return s; }
+// Área geodésica (excesso esférico — mesma conta do leaflet-draw)
+function ringArea(pts) {
+  const R = 6378137, rad = Math.PI / 180;
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += (q.lng - p.lng) * rad * (2 + Math.sin(p.lat * rad) + Math.sin(q.lat * rad));
+  }
+  return Math.abs(a * R * R / 2);
+}
+function measureText(mode, pts) {
+  if (mode === "line") return pts.length > 1 ? fmtLen(pathLen(pts)) : "toque no mapa para traçar";
+  if (pts.length < 3) return "toque no mapa para desenhar (≥ 3 pontos)";
+  return `perímetro ${fmtLen(pathLen(pts.concat(pts[0])))} · área ${fmtArea(ringArea(pts))}`;
+}
+
+// Suavização por corte de cantos (Chaikin): cada iteração troca cada canto
+// por dois pontos a 1/4 e 3/4 do segmento — converge pra uma curva macia.
+// Aplica na GEOMETRIA (preview, forma final, medida e export são coerentes).
+function chaikin(pts, closed, iters) {
+  let p = pts;
+  for (let k = 0; k < iters; k++) {
+    const n = p.length;
+    if (n < 3) return p;
+    const out = [];
+    if (!closed) out.push(p[0]);
+    for (let i = 0; i < (closed ? n : n - 1); i++) {
+      const a = p[i], b = p[(i + 1) % n];
+      out.push(L.latLng(a.lat * 0.75 + b.lat * 0.25, a.lng * 0.75 + b.lng * 0.25));
+      out.push(L.latLng(a.lat * 0.25 + b.lat * 0.75, a.lng * 0.25 + b.lng * 0.75));
+    }
+    if (!closed) out.push(p[n - 1]);
+    p = out;
+  }
+  return p;
+}
+function smoothed(pts, closed) { return drawSmooth > 0 ? chaikin(pts, closed, drawSmooth) : pts; }
+
+function drawStyle() {
+  return { pane: "ly-desenhos", color: drawColor, weight: drawWeight, opacity: 1,
+           fillColor: drawColor, fillOpacity: drawFillOp / 100 };
+}
+function updatePreview(cursor) {
+  const raw = cursor ? drawVerts.concat(cursor) : drawVerts;
+  const pts = smoothed(raw, drawMode === "poly" && raw.length > 2);
+  if (drawPreview) drawPreview.remove();
+  drawPreview = null;
+  if (pts.length > 1) {
+    drawPreview = (drawMode === "poly" && pts.length > 2
+      ? L.polygon(pts, drawStyle()) : L.polyline(pts, drawStyle())).addTo(map);
+  }
+  if (drawMode !== "point") showMeasure(measureText(drawMode, pts));
+}
+function syncDrawButtons() {
+  for (const [id, mode] of [["btn-draw-point", "point"], ["btn-draw-line", "line"], ["btn-draw-poly", "poly"]])
+    $(id).setAttribute("aria-pressed", String(drawMode === mode));
+  const dot = document.querySelector("#btn-color .color-dot");
+  if (dot) dot.style.background = drawColor;
+}
+function cancelDraw() {
+  drawVerts = [];
+  if (drawPreview) { drawPreview.remove(); drawPreview = null; }
+  if (drawMode) { drawMode = null; map.doubleClickZoom.enable(); $("map").classList.remove("drawing"); }
+  hideMeasure(); syncDrawButtons();
+}
+function finishDraw() {
+  const mode = drawMode, pts = drawVerts.slice();
+  // dois cliques rápidos p/ concluir duplicam o último vértice — descarta
+  if (pts.length > 1) {
+    const a = map.latLngToContainerPoint(pts[pts.length - 1]), b = map.latLngToContainerPoint(pts[pts.length - 2]);
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 6) pts.pop();
+  }
+  if (mode === "line" ? pts.length < 2 : pts.length < 3) { cancelDraw(); return; }
+  const sm = smoothed(pts, mode === "poly");
+  const layer = (mode === "line" ? L.polyline(sm, drawStyle()) : L.polygon(sm, drawStyle()));
+  const finalText = measureText(mode, sm);
+  commitShape(layer, finalText);
+  cancelDraw();
+  showMeasure(finalText);                                        // medida final fica à mostra…
+  setTimeout(() => { if (!drawMode) hideMeasure(); }, 6000);     // …por um tempinho
+}
+// Toda forma concluída: guarda o estilo (pro export) e ganha popup com a
+// medida + botão de apagar SÓ ela (tocar no desenho abre).
+function commitShape(layer, text) {
+  layer._drawStyle = { cor: drawColor, espessura: drawWeight, opacidadeInterna: drawFillOp, suavizacao: drawSmooth };
+  const el = document.createElement("div");
+  el.className = "draw-pop-row";
+  if (text) { const pEl = document.createElement("span"); pEl.textContent = text; el.appendChild(pEl); }
+  const del = document.createElement("button");
+  del.type = "button"; del.className = "draw-pop-del";
+  del.title = "Apagar"; del.setAttribute("aria-label", "Apagar este desenho");
+  del.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+  del.addEventListener("click", () => {
+    layer.remove();
+    const i = drawnShapes.indexOf(layer);
+    if (i >= 0) drawnShapes.splice(i, 1);
+  });
+  el.appendChild(del);
+  layer.bindPopup(el, { className: "draw-pop", closeButton: false, minWidth: 0 });
+  layer.addTo(map); drawnShapes.push(layer);
+}
+function setDrawMode(mode) {
+  if (drawMode === mode) {              // 2º toque no botão do modo ativo:
+    if (mode === "point") cancelDraw(); // pontos: sai do modo
+    else finishDraw();                  // linha/polígono: conclui
+    return;
+  }
+  cancelDraw();
+  drawMode = mode;
+  map.doubleClickZoom.disable();
+  $("map").classList.add("drawing");
+  if (mode !== "point") showMeasure(measureText(mode, []));
+  syncDrawButtons();
+}
+$("btn-draw-point").addEventListener("click", () => setDrawMode("point"));
+$("btn-draw-line").addEventListener("click", () => setDrawMode("line"));
+$("btn-draw-poly").addEventListener("click", () => setDrawMode("poly"));
+map.on("click", (e) => {
+  if (!drawMode) return;
+  if (drawMode === "point") {           // vários pontos em sequência
+    const borda = drawColor === "#ffffff" ? "#474747" : "#ffffff";
+    commitShape(L.circleMarker(e.latlng, { pane: "ly-desenhos", radius: 5 + drawWeight,
+      color: borda, weight: drawWeight, fillColor: drawColor, fillOpacity: 1 }), "");
+    return;
+  }
+  drawVerts.push(e.latlng);
+  updatePreview(null);
+});
+map.on("mousemove", (e) => { if (drawMode && drawMode !== "point" && drawVerts.length) updatePreview(e.latlng); });
+map.on("dblclick", () => { if (drawMode && drawMode !== "point") finishDraw(); });
+// Esc INTERROMPE mas não descarta: conclui com o que já foi traçado
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !drawMode) return;
+  if (drawMode === "point") cancelDraw(); else finishDraw();
+});
+
+// Apagar todos os desenhos
+$("btn-clear").addEventListener("click", () => {
+  cancelDraw();
+  if (!drawnShapes.length) { toast("Nada desenhado"); return; }
+  for (const s of drawnShapes) s.remove();
+  drawnShapes.length = 0;
+  toast("Desenhos removidos");
+});
+
+// Cor do desenho — flyout com as 10 opções
+const colorFlyout = $("color-flyout");
+function buildColorFlyout() {
+  colorFlyout.innerHTML =
+    '<div class="cf-swatches">' +
+    DRAW_COLORS.map(([c, nome]) =>
+      `<button type="button" style="background:${c}" data-cor="${c}" title="${nome}" aria-label="${nome}" aria-pressed="${String(c === drawColor)}"></button>`).join("") +
+    "</div>" +
+    `<div class="cf-slider"><label><span>espessura</span><span id="cf-w-val">${drawWeight} px</span></label>` +
+    `<input id="cf-w" type="range" min="1" max="10" step="1" value="${drawWeight}" aria-label="Espessura do traço"></div>` +
+    `<div class="cf-slider"><label><span>opacidade interna</span><span id="cf-o-val">${drawFillOp} %</span></label>` +
+    `<input id="cf-o" type="range" min="0" max="100" step="5" value="${drawFillOp}" aria-label="Opacidade interna"></div>` +
+    `<div class="cf-slider"><label><span>suavização</span><span id="cf-s-val">${drawSmooth || "—"}</span></label>` +
+    `<input id="cf-s" type="range" min="0" max="4" step="1" value="${drawSmooth}" aria-label="Suavização das linhas"></div>`;
+  $("cf-w").addEventListener("input", (e) => {
+    drawWeight = parseInt(e.target.value, 10);
+    $("cf-w-val").textContent = `${drawWeight} px`;
+    if (drawPreview) drawPreview.setStyle(drawStyle());
+  });
+  $("cf-o").addEventListener("input", (e) => {
+    drawFillOp = parseInt(e.target.value, 10);
+    $("cf-o-val").textContent = `${drawFillOp} %`;
+    if (drawPreview) drawPreview.setStyle(drawStyle());
+  });
+  $("cf-s").addEventListener("input", (e) => {
+    drawSmooth = parseInt(e.target.value, 10);
+    $("cf-s-val").textContent = drawSmooth || "—";
+    if (drawMode && drawMode !== "point" && drawVerts.length) updatePreview(null);  // re-suaviza ao vivo
+  });
+}
+$("btn-color").addEventListener("click", () => {
+  if (colorFlyout.hidden) {
+    buildColorFlyout();
+    // à direita da coluna de ferramentas, alinhado ao botão de cor
+    colorFlyout.style.left = "104px";
+    colorFlyout.style.top = ($("draw-tools").offsetTop + $("btn-color").offsetTop) + "px";
+    colorFlyout.hidden = false;
+  } else colorFlyout.hidden = true;
+});
+colorFlyout.addEventListener("click", (e) => {
+  const b = e.target.closest(".cf-swatches button"); if (!b) return;
+  drawColor = b.dataset.cor;
+  for (const s of colorFlyout.querySelectorAll(".cf-swatches button"))
+    s.setAttribute("aria-pressed", String(s.dataset.cor === drawColor));
+  syncDrawButtons();
+  if (drawPreview) drawPreview.setStyle(drawStyle());
+});
+syncDrawButtons();   // pinta a bolinha da cor no boot
+
+// Lápis ✏: mostra/esconde a fileira de ferramentas (desligar conclui o traço)
+$("btn-pencil").addEventListener("click", () => {
+  const tools = $("draw-tools");
+  const show = tools.hidden;
+  if (!show) { if (drawMode && drawMode !== "point") finishDraw(); else cancelDraw(); colorFlyout.hidden = true; }
+  tools.hidden = !show;
+  // coluna nasce ALINHADA AO TOPO da coluna esquerda (botão "+" do zoom)
+  const zoomTop = document.querySelector(".leaflet-control-zoom").getBoundingClientRect().top;
+  tools.style.top = (zoomTop - tools.parentElement.getBoundingClientRect().top) + "px";
+  $("btn-pencil").setAttribute("aria-pressed", String(show));
+});
+
+// 💾 exporta os desenhos como GeoJSON (nativo do Leaflet via toGeoJSON)
+$("btn-save").addEventListener("click", () => {
+  if (!drawnShapes.length) { toast("Nada desenhado para salvar"); return; }
+  const fc = { type: "FeatureCollection", features: drawnShapes.map((s) => {
+    const f = s.toGeoJSON();
+    f.properties = Object.assign({}, f.properties, s._drawStyle || {});
+    return f;
+  }) };
+  const blob = new Blob([JSON.stringify(fc, null, 1)], { type: "application/geo+json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "desenhos-cameratopo.geojson";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast(`GeoJSON salvo (${fc.features.length} formas)`);
+});
+
+// ── Modo imersivo (👁): só o mapa; o olho vira o INVERSO do que está embaixo ─
+$("btn-eye").addEventListener("click", () => {
+  const on = document.body.classList.toggle("immersive");
+  $("btn-eye").setAttribute("aria-pressed", String(on));
+  if (on) { cancelDraw(); setPanelOpen(false); setLayersPanelOpen(false); colorFlyout.hidden = true; }
+});
 
 // ── Modal de ajuda ───────────────────────────────────────────────────────────
 const helpModal = $("help-modal");
@@ -1082,14 +1561,69 @@ function setLayersPanelOpen(open) {
   $("layers-panel").classList.toggle("collapsed", !open);
   $("layers-toggle").setAttribute("aria-pressed", String(open));
 }
+function setPanelOpen(open) {
+  $("panel").classList.toggle("collapsed", !open);
+  $("panel-toggle").setAttribute("aria-pressed", String(open));
+}
 $("panel-toggle").addEventListener("click", () => {
-  const opened = !$("panel").classList.toggle("collapsed");
-  if (opened) setLayersPanelOpen(false);
+  const open = $("panel").classList.contains("collapsed");
+  setPanelOpen(open);
+  if (open) setLayersPanelOpen(false);
 });
 $("layers-toggle").addEventListener("click", () => {
   const open = $("layers-panel").classList.contains("collapsed");
   setLayersPanelOpen(open);
-  if (open) $("panel").classList.add("collapsed");
+  if (open) setPanelOpen(false);
+});
+
+// ── Alça de redimensionamento vertical (painéis ☰/⧉ e modal de ajuda) ────────
+// Arrastar a alça define height explícito (max-height sai de cena), re-medindo
+// o contêiner a cada move. Desktop: alça EMBAIXO, h = ponteiro − topo. Celular
+// (bottom-sheet): alça EM CIMA, h = fundo − ponteiro — e o nó .grip é movido
+// pro começo/fim do contêiner conforme a media query.
+const mqMobile = window.matchMedia("(max-width: 640px)");
+function placeGrips() {
+  document.querySelectorAll(".grip").forEach((g) => {
+    if (mqMobile.matches) g.parentElement.prepend(g);
+    else g.parentElement.append(g);
+  });
+}
+placeGrips();
+mqMobile.addEventListener("change", placeGrips);
+function wireGrip(grip) {
+  const box = grip.parentElement;
+  grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { grip.setPointerCapture(e.pointerId); } catch (err) { /* ponteiro sintético */ }
+    const move = (ev) => {
+      const r = box.getBoundingClientRect();
+      const want = mqMobile.matches ? (r.bottom - ev.clientY) : (ev.clientY - r.top);
+      const max = mqMobile.matches ? (window.innerHeight - 76) : (window.innerHeight - r.top - 12);
+      const h = Math.max(130, Math.min(max, want));
+      box.style.maxHeight = "none";
+      box.style.height = h + "px";
+    };
+    const stop = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", stop);
+      grip.removeEventListener("pointercancel", stop);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", stop);
+    grip.addEventListener("pointercancel", stop);
+  });
+}
+document.querySelectorAll(".grip").forEach(wireGrip);
+// Tela mudou (rotação etc.): grampeia alturas explícitas de volta pro visível.
+window.addEventListener("resize", () => {
+  document.querySelectorAll(".grip").forEach((g) => {
+    const box = g.parentElement;
+    if (!box.style.height) return;
+    const max = mqMobile.matches
+      ? window.innerHeight - 76
+      : window.innerHeight - box.getBoundingClientRect().top - 12;
+    if (parseFloat(box.style.height) > max) box.style.height = Math.max(130, max) + "px";
+  });
 });
 
 // ── Link colado na MESMA janela ──────────────────────────────────────────────
@@ -1100,7 +1634,7 @@ $("layers-toggle").addEventListener("click", () => {
 window.addEventListener("hashchange", () => {
   readHash();
   map.setView(P.center, P.zoom);
-  applyBase();
+  map.setBearing(P.rot || 0);
   autoResolved = false; lastAutoKey = "";
   applyStackZ(); syncEeLayers(); rebuildLayersPanel();
   syncInputs(); updateLegend(); refreshTiles();
@@ -1109,10 +1643,19 @@ window.addEventListener("hashchange", () => {
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 if (window.innerWidth <= 640) $("panel").classList.add("collapsed");   // começa fechado no celular
+$("panel-toggle").setAttribute("aria-pressed", String(!$("panel").classList.contains("collapsed")));
 L.control.scale({ imperial: false }).addTo(map);
+map.addControl(new (L.Control.extend({
+  options: { position: "bottomleft" },
+  onAdd() { const d = L.DomUtil.create("div", "ct-wordmark"); d.textContent = "Câmera Topográfica"; return d; },
+}))());
 rebuildLayersPanel(); syncEeLayers();   // camadas ⧉ do hash (se houver)
 syncInputs(); updateLegend();
 if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
+
+// PWA: service worker (shell offline + abertura instantânea). Ver web/sw.js —
+// bump da VERSION lá em qualquer mudança de arquivo servido.
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
 </html>

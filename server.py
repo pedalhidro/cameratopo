@@ -160,6 +160,17 @@ def vendor(p):
     return send_from_directory(os.path.join(WEB_DIR, "vendor"), p)
 
 
+# PWA: whitelist explícita (nada de servir web/ inteiro por rota genérica)
+@app.get("/<any('manifest.json', 'sw.js', 'icon-192.png', 'icon-512.png'):f>")
+def pwa_file(f):
+    resp = send_from_directory(WEB_DIR, f)
+    if f == "sw.js":
+        # O navegador respeita max-age no script do SW — curto, pra um deploy
+        # com VERSION nova ser visto logo (o shell troca no ciclo do SW).
+        resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
+
+
 @app.get("/favicon.ico")
 def favicon():
     path = os.path.join(WEB_DIR, "favicon.ico")
@@ -298,4 +309,7 @@ def ee_layer_tile(layer, z, x, y):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT") or 8400)
     print(f"[cameratopo] http://127.0.0.1:{port}/{{z}}/{{x}}/{{y}}.png")
-    app.run(host="0.0.0.0", port=port)
+    # threaded: o dev server do Flask é SERIAL por padrão — com as camadas EE
+    # (proxy de ~2 s/tile frio), 30 tiles enfileirados travavam a página local
+    # ("as camadas não aparecem"). Em produção o gunicorn já é threaded.
+    app.run(host="0.0.0.0", port=port, threaded=True)

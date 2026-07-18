@@ -40,9 +40,14 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `cameratopo-ee@` precisa de LEITURA nos assets (compartilhar no Code Editor
   ou `earthengine acl ch -u serviceAccount:…:R <asset>`); sem acesso → tile
   transparente. Local (ADC do dono) sempre funciona.
-- `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet e IBM
-  Plex Mono **vendorados** em `web/vendor/` (nada de CDN), strings em PT,
-  estado todo no hash da URL, crossfade de camadas de tile.
+- `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet (+
+  leaflet-rotate, GPL-3.0) e IBM Plex Mono **vendorados** em `web/vendor/`
+  (nada de CDN), strings em PT, estado todo no hash da URL, crossfade de
+  camadas de tile. É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
+  stale-while-revalidate; tiles/stats SÓ rede) + ícones renderizados pelo
+  próprio render.py. **Bump do `VERSION` do sw.js em QUALQUER mudança de
+  arquivo servido** (convenção do workspace) — além do par
+  RENDER/TILE_VERSION quando pixels mudarem.
 - Deploy: Cloud Run, projeto `pedal-hidrografico`, serviço `cameratopo`
   (`gcloud run deploy cameratopo --source . --region southamerica-east1
   --allow-unauthenticated --min-instances 0 --max-instances 4 --concurrency 40
