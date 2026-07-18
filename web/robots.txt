@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /ee/
+Disallow: /stats
+Sitemap: https://cameratopo.pedalhidrografi.co/sitemap.xml

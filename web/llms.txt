@@ -1,0 +1,45 @@
+# Câmera Topográfica
+
+> Mapa interativo de relevo do coletivo Pedal Hidrográfico (São Paulo, Brasil):
+> a elevação vira cor pela paleta cíclica cmocean.phase, multiplicada por um
+> realce de declividade branco→preto — "veja a paisagem por uma lente
+> topográfica". UI em português; código AGPL-3.0.
+
+App: https://cameratopo.pedalhidrografi.co/
+Código: https://github.com/pedalhidro/cameratopo
+Coletivo: https://pedalhidrografi.co/ (mapa principal: https://amora.pedalhidrografi.co/)
+
+## O que dá pra fazer no app
+
+- Navegar o relevo com 3 fontes de elevação (DEM): FABDEM global ~30 m,
+  DEM de São Paulo ~5 m, e FABDEM renderizado pelo Google Earth Engine (padrão).
+- Ajustar faixa de elevação (mín/máx em m), declive máximo (% ou graus), gama,
+  ciclos da paleta e opacidade — ou deixar a "faixa automática" (botão A)
+  seguir a tela via percentis.
+- Painel de camadas (⧉): bases (OpenStreetMap, Satélite, Híbrido) + camadas do
+  Earth Engine (MapBiomas col. 9, luzes noturnas VIIRS, índice de aridez,
+  densidade populacional WorldPop, eleições 2022, Posição Topográfica Local,
+  declives, rios livres HydroSHEDS…), com visibilidade/opacidade/ordem.
+- Desenhar (✏): pontos, linhas e polígonos com medidas (comprimento; perímetro
+  e área geodésica), cores, suavização e export GeoJSON.
+- Girar o mapa (2 dedos ou Ctrl/Cmd+arrastar), modo imersivo (👁), PWA
+  instalável. Todo o estado (vista, parâmetros, camadas) vive no hash da URL —
+  qualquer configuração é um link compartilhável.
+
+## API pública (sem auth)
+
+- Tiles XYZ do relevo: `/{z}/{x}/{y}.png?dem=fabdem|sp|ee&elevMin=<m>&elevMax=<m>&slopeMax=<m/m>&slopeGamma=<γ>&cycles=<n>&ss=<px>`
+  (qualquer parâmetro aceita `auto`; use o botão "Copiar URL de tiles" no app
+  para obter a querystring da vista atual — serve em QGIS, OsmAnd, Leaflet…)
+- Camadas Earth Engine: `/ee/<id>/{z}/{x}/{y}.png` — ids: aridez-disc,
+  aridez-cont, mapbiomas-2023, mapbiomas-1985, luzes, claro3g, eleicoes-cart,
+  eleicoes-terr, worldpop, desmorro, elevacao, declive, declive-inv, ptl, rios.
+- Percentis da vista: `/stats?bbox=oeste,sul,leste,norte&dem=fabdem|sp|ee`
+- Saúde: `/health`
+
+## Dados e licenças
+
+- FABDEM (Hawker & Neal, U. Bristol) — CC-BY-NC-SA 4.0.
+- MapBiomas Coleção 9 — CC-BY; VIIRS (NOAA), WorldPop, HydroSHEDS (WWF),
+  Global Aridity Index (CGIAR) via Google Earth Engine.
+- Mapa base © OpenStreetMap; satélite © Esri. Código do app: AGPL-3.0.

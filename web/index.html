@@ -3,9 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Câmera Topográfica · Pedal Hidrográfico</title>
 <meta name="description" content="Relevo de São Paulo pela Câmera Topográfica — elevação em paleta cíclica realçada pela declividade. Navegue o mapa e ajuste os parâmetros.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%E2%9B%B0%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<title>Câmera Topográfica</title>
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="canonical" href="https://cameratopo.pedalhidrografi.co/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Câmera Topográfica">
+<meta property="og:title" content="Câmera Topográfica">
+<meta property="og:description" content="Veja a paisagem por uma lente topográfica: elevação em paleta cíclica (cmocean.phase) realçada pela declividade, sobre FABDEM global e DEM de SP. Camadas do Earth Engine, desenho com medidas, tiles XYZ abertos.">
+<meta property="og:url" content="https://cameratopo.pedalhidrografi.co/">
+<meta property="og:image" content="https://cameratopo.pedalhidrografi.co/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="pt_BR">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Câmera Topográfica",
+  "url": "https://cameratopo.pedalhidrografi.co/",
+  "description": "Mapa de relevo interativo: elevação em paleta cíclica realçada pela declividade (FABDEM ~30 m global, DEM-SP 5 m, Google Earth Engine), com camadas de contexto, desenho com medidas e tiles XYZ abertos.",
+  "applicationCategory": "Map",
+  "inLanguage": "pt-BR",
+  "operatingSystem": "Web",
+  "image": "https://cameratopo.pedalhidrografi.co/og.png",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "isAccessibleForFree": true,
+  "creator": { "@type": "Organization", "name": "Pedal Hidrográfico", "url": "https://pedalhidrografi.co/" }
+}
+</script>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#0b0d10">
@@ -382,12 +410,12 @@
   </div>
 
   <div class="row">
-    <div class="slider-head"><label for="slope">Declive máximo</label><span class="val" id="slope-val">46 %</span></div>
+    <div class="slider-head"><label for="slope">Declive máximo</label><span class="val" id="slope-val">16 %</span></div>
     <div class="seg seg-mini" id="seg-slopeunit" role="group" aria-label="Unidade do declive">
       <button data-unit="pct" aria-pressed="true">gradiente %</button>
       <button data-unit="deg" aria-pressed="false">graus °</button>
     </div>
-    <input type="range" id="slope" min="1" max="120" step="1" value="46">
+    <input type="range" id="slope" min="1" max="120" step="1" value="16">
   </div>
 
   <hr class="sep">
@@ -555,9 +583,9 @@ const CMO_PHASE = [
 ];
 
 const DEFAULTS = {
-  center: [-23.55, -46.63], zoom: 13,
-  dem: "ee", auto: true,
-  emin: 700, emax: 1200, slope: 46,
+  center: [-23.676719997531016, -46.40866076216205], zoom: 10,   // Serra do Mar / RMSP
+  dem: "ee", auto: false,
+  emin: 700, emax: 1200, slope: 16,
   gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
   slopeUnit: "pct", rot: 0,   // rotação do mapa (graus)
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
