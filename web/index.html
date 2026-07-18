@@ -49,20 +49,34 @@
   }
   #map { position: absolute; inset: 0; background: #0b0d10; }
 
-  /* ── Painel de controles ─────────────────────────────────────────────── */
-  #panel {
-    position: absolute; top: 64px; right: 12px; z-index: 1000;
+  /* ── Painéis (controles ☰ e camadas ⧉) ───────────────────────────────── */
+  #panel, #layers-panel {
+    position: absolute; top: 116px; right: 12px; z-index: 1000;
     width: 324px; max-width: calc(100vw - 24px);
-    max-height: calc(100vh - 76px); overflow-y: auto;
+    max-height: calc(100vh - 128px); overflow-y: auto;
     background: var(--panel-bg);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); border-radius: 14px;
     box-shadow: var(--panel-shadow);
     padding: 14px 16px 16px;
   }
-  #panel.collapsed { display: none; }
-  #panel::-webkit-scrollbar { width: 8px; }
-  #panel::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 8px; }
+  #panel.collapsed, #layers-panel.collapsed { display: none; }
+  #panel::-webkit-scrollbar, #layers-panel::-webkit-scrollbar { width: 8px; }
+  #panel::-webkit-scrollbar-thumb, #layers-panel::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 8px; }
+
+  /* Linhas do painel de camadas (como no amora: ▲▼ · ligar · nome · opacidade) */
+  .layer-row { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-bottom: 1px solid var(--panel-line); }
+  .layer-row:last-child { border-bottom: 0; }
+  .ly-move { display: flex; flex-direction: column; gap: 1px; }
+  .ly-move button {
+    width: 20px; height: 15px; padding: 0; font-size: 8px; line-height: 1;
+    color: var(--panel-muted); background: var(--seg-bg);
+    border: 0; border-radius: 4px; cursor: pointer;
+  }
+  .ly-move button:disabled { opacity: 0.3; cursor: default; }
+  .layer-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; flex: 0 0 auto; }
+  .layer-row .ly-name { flex: 1; font-size: 11px; font-weight: 600; line-height: 1.25; }
+  .layer-row input[type="range"] { width: 74px; flex: 0 0 auto; margin: 0; }
 
   .brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
   .brand h1 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
@@ -155,6 +169,7 @@
   .map-btn .loc-ico { display: block; pointer-events: none; }
 
   #panel-toggle { position: absolute; top: 12px; right: 12px; z-index: 1001; }
+  #layers-toggle { position: absolute; top: 64px; right: 12px; z-index: 1001; font-size: 17px; }
 
   /* Pilha de botões (📍/A) no canto sup. esquerdo, abaixo do zoom */
   .ct-mapbtns { display: flex; flex-direction: column; gap: 8px; border: 0; box-shadow: none; }
@@ -211,7 +226,7 @@
   .toast.show { opacity: 1; }
 
   @media (max-width: 640px) {
-    #panel { right: 12px; left: 12px; width: auto; }
+    #panel, #layers-panel { right: 12px; left: 12px; width: auto; }
   }
 </style>
 </head>
@@ -219,6 +234,12 @@
 <div id="map"></div>
 
 <button id="panel-toggle" class="map-btn" aria-label="Abrir/fechar controles" title="Menu">☰</button>
+<button id="layers-toggle" class="map-btn" aria-label="Abrir/fechar camadas" aria-pressed="false" title="Camadas">⧉</button>
+
+<aside id="layers-panel" class="collapsed" aria-label="Camadas do mapa">
+  <div class="brand"><h1>Camadas</h1></div>
+  <div id="layer-rows"></div>
+</aside>
 
 <aside id="panel" aria-label="Controles da Câmera Topográfica">
   <div class="brand"><h1>Câmera Topográfica</h1></div>
@@ -318,6 +339,17 @@
       <h3>Buscar 🔍</h3>
       <p>Leva a um lugar (via OpenStreetMap/Nominatim).</p>
 
+      <h3>Camadas ⧉</h3>
+      <p>O botão ⧉ (abaixo do ☰) abre o painel de camadas — as mesmas do app
+        Câmera Topográfica no Earth Engine: MapBiomas, luzes noturnas, índice de
+        aridez, densidade populacional, eleições 2022, cobertura 3G, elevação,
+        declives, Posição Topográfica Local, detector de desmorrodouros e rios
+        livres (HydroSHEDS). Cada linha tem <b>▲▼</b> (ordem de empilhamento),
+        <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. As camadas de
+        elevação/declive seguem os parâmetros do painel ☰ (inclusive a faixa
+        automática). São renderizadas pelo Earth Engine — a primeira carga de
+        uma camada pesada pode demorar alguns segundos.</p>
+
       <h3>Botões do mapa (📍 e A)</h3>
       <p>No canto superior esquerdo, abaixo do zoom. <b>📍</b> liga/desliga o
         rastreamento da sua posição ao vivo (o navegador pede permissão): centra
@@ -416,6 +448,35 @@ const TILE_VERSION = "4";
 // menos serrilhado), mais CPU/rede por tile. O servidor limita em 1024.
 const SS_CHOICES = [256, 512, 1024];
 
+// ── Camadas do app GEE (painel ⧉) ────────────────────────────────────────────
+// Mesmas camadas do Câmera Topográfica do Earth Engine, servidas por
+// /ee/<id>/{z}/{x}/{y}.png (ee_source.LAYERS no servidor). Ordem daqui =
+// empilhamento padrão, FUNDO → TOPO (a ordem de addLayer do app GEE).
+// `dep` diz de quais params da UI a camada depende (entra na URL do tile);
+// `relevo` é a camada de relevo existente (qualquer fonte), só marcada aqui.
+const EE_LAYER_VERSION = "1";   // = ee_source.EE_LAYERS_VERSION — bump JUNTO
+const EE_LAYERS = [
+  { id: "aridez-disc",    label: "Índice de aridez (discreto)",      dep: "" },
+  { id: "aridez-cont",    label: "Índice de aridez (contínuo)",      dep: "" },
+  { id: "mapbiomas-2023", label: "MapBiomas col. 9 — 2023",          dep: "" },
+  { id: "mapbiomas-1985", label: "MapBiomas col. 9 — 1985",          dep: "" },
+  { id: "luzes",          label: "Luzes noturnas (VIIRS)",           dep: "" },
+  { id: "claro3g",        label: "Cobertura Claro 3G (2024)",        dep: "" },
+  { id: "eleicoes-cart",  label: "Eleições 2022 — cartograma",       dep: "" },
+  { id: "eleicoes-terr",  label: "Eleições 2022 — território",       dep: "" },
+  { id: "worldpop",       label: "Densidade populacional (WorldPop)", dep: "" },
+  { id: "desmorro",       label: "Detector de desmorrodouros",       dep: "" },
+  { id: "elevacao",       label: "Elevação (FABDEM)",                dep: "elev" },
+  { id: "declive",        label: "Declive (branco no escuro)",       dep: "slope" },
+  { id: "declive-inv",    label: "Declive (escuro no branco)",       dep: "slope" },
+  { id: "ptl",            label: "Posição Topográfica Local (PTL)",  dep: "" },
+  { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
+  { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
+];
+const DEFAULT_STACK = EE_LAYERS.map((l) => l.id);
+const LAYER_BY_ID = Object.fromEntries(EE_LAYERS.map((l) => [l.id, l]));
+const DEFAULT_LAYER_OPACITY = 80;   // % — camadas extras (relevo usa P.opacity)
+
 // Sem restrição de zoom: o servidor decide o que consegue renderizar (relevo
 // some sozinho, transparente, quando o mosaico FABDEM fica afastado demais; o
 // DEM-SP serve qualquer zoom). Acima de RELIEF_MAX_NATIVE o Leaflet reamplia os
@@ -424,6 +485,10 @@ const RELIEF_MAX_NATIVE = 17;
 
 // ── Estado (lido do hash da URL, com fallback nos defaults) ──────────────────
 const P = Object.assign({}, DEFAULTS);
+// Estado das camadas (⧉): pilha fundo→topo, ligadas, opacidade por camada.
+P.stack = DEFAULT_STACK.slice();
+P.lyOn = { relevo: true };
+P.lyOp = {};                       // id → % (ausente = DEFAULT_LAYER_OPACITY)
 
 function readHash() {
   const h = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -444,6 +509,25 @@ function readHash() {
   if (h.get("su") === "deg") P.slopeUnit = "deg";
   const ss = Math.round(num("ss", P.ss));
   if (SS_CHOICES.includes(ss)) P.ss = ss;
+
+  // ly= camadas VISÍVEIS, fundo→topo, `id:opacidade%` (relevo sem %, usa op=).
+  // Ausente → só o relevo, pilha padrão. As ocultas ficam embaixo na ordem
+  // padrão (posição de camada invisível não muda o visual; só a lista).
+  P.stack = DEFAULT_STACK.slice();
+  P.lyOn = { relevo: true };
+  P.lyOp = {};
+  if (h.has("ly")) {
+    const on = {}, order = [];
+    for (const t of h.get("ly").split(",")) {
+      const [id, pct] = t.split(":");
+      if (!LAYER_BY_ID[id] || on[id]) continue;
+      on[id] = true; order.push(id);
+      const v = parseInt(pct, 10);
+      if (id !== "relevo" && Number.isFinite(v)) P.lyOp[id] = Math.max(0, Math.min(100, v));
+    }
+    P.lyOn = on;
+    P.stack = DEFAULT_STACK.filter((id) => !on[id]).concat(order);
+  }
 }
 readHash();
 
@@ -467,6 +551,11 @@ function commitHash() {
   if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
   q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
   q.set("base", P.base); q.set("su", P.slopeUnit); q.set("ss", P.ss);
+  // Camadas ⧉: só quando difere do padrão (= só o relevo ligado).
+  const seq = P.stack.filter((id) => P.lyOn[id])
+    .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
+    .join(",");
+  if (seq !== "relevo") q.set("ly", seq);
   history.replaceState(null, "", "#" + q.toString());
 }
 function writeHash() {
@@ -496,6 +585,18 @@ function tileUrl(absolute) {
 // ── Mapa ─────────────────────────────────────────────────────────────────────
 const map = L.map("map", { center: P.center, zoom: P.zoom, minZoom: 2, maxZoom: 22, zoomControl: true, attributionControl: false });
 
+// Um pane por camada (⧉): a PRECEDÊNCIA é o zIndex do pane, recalculado da
+// pilha. Ficam entre a base (tilePane, 200) e os overlays/marcadores (400).
+for (const l of EE_LAYERS) map.createPane("ly-" + l.id);
+function applyStackZ() {
+  P.stack.forEach((id, i) => { map.getPane("ly-" + id).style.zIndex = String(210 + i); });
+}
+applyStackZ();
+function layerOpacity(id) {
+  return id === "relevo" ? P.opacity
+    : (Number.isFinite(P.lyOp[id]) ? P.lyOp[id] : DEFAULT_LAYER_OPACITY);
+}
+
 const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, attribution: "© OpenStreetMap",
 });
@@ -510,6 +611,7 @@ const satellite = L.tileLayer(
 const RELIEF_FADE_MS = 400;
 function reliefOpts(op) {
   return {
+    pane: "ly-relevo",   // pilha do painel ⧉ (precedência = zIndex do pane)
     opacity: op, minZoom: 0, maxNativeZoom: RELIEF_MAX_NATIVE, maxZoom: 22,
     keepBuffer: 4, updateWhenZooming: false,
     // Tela HiDPI/Retina: pede tiles um zoom acima e mostra em ½ tamanho, pra o
@@ -530,14 +632,18 @@ function applyBase() {
   (P.base === "satellite" ? satellite : osm).addTo(map).bringToBack();
 }
 applyBase();
-active.addTo(map);
+if (P.lyOn.relevo) active.addTo(map);
 
 let tileTimer = null;
 function refreshTiles() {
   clearTimeout(tileTimer);
-  tileTimer = setTimeout(() => crossfadeRelief(tileUrl(false)), 220);
+  tileTimer = setTimeout(() => {
+    if (P.lyOn.relevo) crossfadeRelief(tileUrl(false));
+    syncEeLayers();   // camadas ⧉ dependentes de params (elevação/declives)
+  }, 220);
 }
 function crossfadeRelief(url) {
+  if (!P.lyOn.relevo) return;
   const token = ++fadeToken;
   const incoming = L.tileLayer(url, reliefOpts(0)).addTo(map);
   fadeContainer(incoming);
@@ -559,6 +665,109 @@ function setReliefOpacity(frac) {
   const c = active.getContainer();
   if (c) c.style.transition = "none";
   active.setOpacity(frac);
+}
+
+// ── Camadas ⧉ (as do app GEE, via /ee/<id>/…) ────────────────────────────────
+// Criação preguiçosa: a L.tileLayer de cada camada só nasce no primeiro liga.
+// As derivadas do relevo (dep elev/slope) levam os params da UI na URL — os
+// MESMOS números congelados do relevo, então seguem a tela e não têm costura.
+const eeLayerObjs = {};   // id → L.tileLayer
+function eeLayerUrl(id) {
+  const dep = LAYER_BY_ID[id].dep;
+  const explicit = !P.auto || autoResolved;
+  const q = new URLSearchParams();
+  if (dep === "elev") {
+    q.set("elevMin", explicit ? String(P.emin) : "auto");
+    q.set("elevMax", explicit ? String(P.emax) : "auto");
+    q.set("cycles", String(P.cycles));
+  } else if (dep === "slope") {
+    q.set("slopeMax", explicit ? String(P.slope / 100) : "auto");
+    q.set("slopeGamma", String(P.gamma));
+  }
+  q.set("v", EE_LAYER_VERSION);
+  return `/ee/${id}/{z}/{x}/{y}.png?${q.toString()}`;
+}
+// Reconcilia o mapa com o estado (ligadas, URLs, opacidades). Idempotente.
+function syncEeLayers() {
+  for (const l of EE_LAYERS) {
+    if (l.relief) {   // relevo = a camada existente; crossfade cuida da URL
+      const on = !!P.lyOn.relevo;
+      if (on && !map.hasLayer(active)) { active.addTo(map); crossfadeRelief(tileUrl(false)); }
+      else if (!on && map.hasLayer(active)) map.removeLayer(active);
+      continue;
+    }
+    const on = !!P.lyOn[l.id];
+    let ly = eeLayerObjs[l.id];
+    if (on) {
+      const url = eeLayerUrl(l.id);
+      if (!ly) {
+        ly = eeLayerObjs[l.id] = L.tileLayer(url, {
+          pane: "ly-" + l.id, opacity: layerOpacity(l.id) / 100,
+          maxNativeZoom: 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
+          attribution: "Camadas · Google Earth Engine",
+        });
+      } else if (ly._url !== url) ly.setUrl(url);
+      ly.setOpacity(layerOpacity(l.id) / 100);
+      if (!map.hasLayer(ly)) ly.addTo(map);
+    } else if (ly && map.hasLayer(ly)) {
+      map.removeLayer(ly);
+    }
+  }
+}
+
+// Painel ⧉ — linhas TOPO → FUNDO (como no amora): ▲▼ · ligar · nome · opacidade
+function rebuildLayersPanel() {
+  const box = document.getElementById("layer-rows");
+  box.innerHTML = "";
+  const top = P.stack.slice().reverse();
+  top.forEach((id, di) => {
+    const l = LAYER_BY_ID[id];
+    const row = document.createElement("div");
+    row.className = "layer-row";
+    row.dataset.id = id;
+    row.innerHTML =
+      '<span class="ly-move">' +
+        `<button type="button" title="Empilhar acima" aria-label="Empilhar ${l.label} acima"${di === 0 ? " disabled" : ""}>▲</button>` +
+        `<button type="button" title="Empilhar abaixo" aria-label="Empilhar ${l.label} abaixo"${di === top.length - 1 ? " disabled" : ""}>▼</button>` +
+      "</span>" +
+      `<input type="checkbox"${P.lyOn[id] ? " checked" : ""} aria-label="Mostrar ${l.label}">` +
+      `<span class="ly-name">${l.label}</span>` +
+      `<input type="range" min="0" max="100" step="1" value="${layerOpacity(id)}" aria-label="Opacidade — ${l.label}">`;
+    const [up, down] = row.querySelectorAll(".ly-move button");
+    up.addEventListener("click", () => moveLayer(id, +1));
+    down.addEventListener("click", () => moveLayer(id, -1));
+    row.querySelector("input[type=checkbox]").addEventListener("change", (e) => {
+      P.lyOn[id] = e.target.checked;
+      syncEeLayers(); writeHash();
+    });
+    row.querySelector("input[type=range]").addEventListener("input", (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (id === "relevo") {
+        P.opacity = v; setReliefOpacity(v / 100); syncInputs();  // espelha o painel ☰
+      } else {
+        P.lyOp[id] = v;
+        const ly = eeLayerObjs[id];
+        if (ly) ly.setOpacity(v / 100);
+      }
+      writeHash();
+    });
+    box.appendChild(row);
+  });
+}
+function moveLayer(id, dir) {   // +1 = em direção ao topo
+  const i = P.stack.indexOf(id), j = i + dir;
+  if (j < 0 || j >= P.stack.length) return;
+  [P.stack[i], P.stack[j]] = [P.stack[j], P.stack[i]];
+  applyStackZ(); rebuildLayersPanel(); writeHash();
+}
+// Sincroniza valores das linhas SEM reconstruir (não mata um slider em arrasto).
+function syncLayersPanelValues() {
+  document.querySelectorAll("#layer-rows .layer-row").forEach((row) => {
+    const id = row.dataset.id;
+    row.querySelector("input[type=checkbox]").checked = !!P.lyOn[id];
+    const r = row.querySelector("input[type=range]");
+    if (document.activeElement !== r) r.value = layerOpacity(id);
+  });
 }
 
 // ── Auto que segue a tela ────────────────────────────────────────────────────
@@ -726,10 +935,10 @@ $("cycles").addEventListener("input", (e) => {
   P.cycles = parseInt(e.target.value, 10); $("cycles-val").textContent = P.cycles;
   updateLegend(); refreshTiles(); writeHash();
 });
-// opacidade (não recarrega tiles — só setOpacity)
+// opacidade (não recarrega tiles — só setOpacity); espelha a linha do relevo no ⧉
 $("opacity").addEventListener("input", (e) => {
   P.opacity = parseInt(e.target.value, 10); $("opacity-val").textContent = `${P.opacity} %`;
-  setReliefOpacity(P.opacity / 100); writeHash();
+  setReliefOpacity(P.opacity / 100); syncLayersPanelValues(); writeHash();
 });
 // DEM
 $("seg-dem").addEventListener("click", (e) => {
@@ -868,8 +1077,20 @@ $("help-close").addEventListener("click", closeHelp);
 helpModal.addEventListener("click", (e) => { if (e.target === helpModal) closeHelp(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !helpModal.hidden) closeHelp(); });
 
-// ── Toggle do painel (hamburguer) — abre/fecha em qualquer tamanho de tela ───
-$("panel-toggle").addEventListener("click", () => $("panel").classList.toggle("collapsed"));
+// ── Toggles dos painéis (☰ controles / ⧉ camadas) — mutuamente exclusivos ────
+function setLayersPanelOpen(open) {
+  $("layers-panel").classList.toggle("collapsed", !open);
+  $("layers-toggle").setAttribute("aria-pressed", String(open));
+}
+$("panel-toggle").addEventListener("click", () => {
+  const opened = !$("panel").classList.toggle("collapsed");
+  if (opened) setLayersPanelOpen(false);
+});
+$("layers-toggle").addEventListener("click", () => {
+  const open = $("layers-panel").classList.contains("collapsed");
+  setLayersPanelOpen(open);
+  if (open) $("panel").classList.add("collapsed");
+});
 
 // ── Link colado na MESMA janela ──────────────────────────────────────────────
 // readHash só roda no boot; colar um link que muda só o hash NÃO recarrega a
@@ -881,6 +1102,7 @@ window.addEventListener("hashchange", () => {
   map.setView(P.center, P.zoom);
   applyBase();
   autoResolved = false; lastAutoKey = "";
+  applyStackZ(); syncEeLayers(); rebuildLayersPanel();
   syncInputs(); updateLegend(); refreshTiles();
   if (P.auto) runAutoEstimate();
 });
@@ -888,6 +1110,7 @@ window.addEventListener("hashchange", () => {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 if (window.innerWidth <= 640) $("panel").classList.add("collapsed");   // começa fechado no celular
 L.control.scale({ imperial: false }).addTo(map);
+rebuildLayersPanel(); syncEeLayers();   // camadas ⧉ do hash (se houver)
 syncInputs(); updateLegend();
 if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
 </script>

@@ -25,7 +25,21 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   dados; zero quota EE). Sem costura por construção (params moram no mapid).
   Falha de EE/rede → tile transparente, como as outras fontes. Versão própria
   (`EE_VERSION`) na chave/ETag — bumpe ao mudar a expressão EE (independente do
-  `RENDER_VERSION`).
+  `RENDER_VERSION`). Também abriga o **registry de camadas** do app GEE
+  (`LAYERS`, endpoint `/ee/<id>/{z}/{x}/{y}.png`, painel ⧉ da UI): MapBiomas,
+  luzes, aridez, WorldPop, eleições, claro3g, PTL, desmorro, declives,
+  elevação, rios — cada uma uma expressão EE já visualizada, mapid cacheado
+  por (camada, params que ela USA — `layer_param_sig`). Versão própria
+  (`EE_LAYERS_VERSION`) — bumpe JUNTO com `EE_LAYER_VERSION` do index.html ao
+  mudar qualquer expressão de camada. Paletas inline (gena/ee-palettes,
+  MapBiomas col. 9 oficial) — o Code Editor resolve via require(), aqui é
+  literal. Falha de camada NÃO entra em cache (nem servidor nem navegador,
+  max-age=60): o 1º tile de camada pesada (worldpop/desmorro) estoura timeout
+  enquanto o EE computa, e cachear congelaria o buraco. **Assets privados**
+  (claro3g, eleições — `projects/ee-danilolessa/assets/*`): no Cloud Run a SA
+  `cameratopo-ee@` precisa de LEITURA nos assets (compartilhar no Code Editor
+  ou `earthengine acl ch -u serviceAccount:…:R <asset>`); sem acesso → tile
+  transparente. Local (ADC do dono) sempre funciona.
 - `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet e IBM
   Plex Mono **vendorados** em `web/vendor/` (nada de CDN), strings em PT,
   estado todo no hash da URL, crossfade de camadas de tile.

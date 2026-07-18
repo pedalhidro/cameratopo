@@ -128,11 +128,11 @@ def _resolve_params(dem):
                 gamma=gamma, cycles=cycles, max_read=max_read)
 
 
-def _png_response(body, etag):
+def _png_response(body, etag, max_age=None):
     inm = request.headers.get("If-None-Match")
     headers = {
         "Content-Type": "image/png",
-        "Cache-Control": f"public, max-age={CACHE_MAX_AGE}",
+        "Cache-Control": f"public, max-age={CACHE_MAX_AGE if max_age is None else max_age}",
         "ETag": etag,
         "Access-Control-Allow-Origin": "*",   # tiles públicos, consumidos por vários hosts
     }
@@ -258,6 +258,39 @@ def tile(z, x, y):
         if body is None:
             body = render.transparent_png()
         render.cache_put(key, body)
+
+    return _png_response(body, etag)
+
+
+@app.get("/ee/<layer>/<int:z>/<int:x>/<int:y>.png")
+def ee_layer_tile(layer, z, x, y):
+    """Tiles das camadas do app GEE (registry em ee_source.LAYERS) — mesma
+    mecânica do dem=ee: mapid cacheado + proxy + transparente em falha. A UI
+    (painel de camadas ⧉) monta a URL só com os params que a camada usa."""
+    if layer not in ee_source.LAYERS:
+        return Response(status=404)
+
+    p = _resolve_params("ee")
+    sig = ee_source.layer_param_sig(layer, p)
+    key = f"eely{ee_source.EE_LAYERS_VERSION}/{layer}/{z}/{x}/{y}?{sig}"
+    etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
+
+    max_tile = 2 ** z - 1
+    if not (MIN_ZOOM <= z <= MAX_ZOOM and 0 <= x <= max_tile and 0 <= y <= max_tile):
+        return _png_response(render.transparent_png(), etag)
+
+    body = render.cache_get(key)
+    if body is None:
+        try:
+            body = ee_source.fetch_layer_tile(layer, z, x, y, p)
+            render.cache_put(key, body)
+        except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
+            app.logger.warning("camada ee %s falhou: %s", key, exc)
+            # Falha NÃO entra no cache (nem servidor, nem 7 dias no navegador):
+            # o 1º tile de camada pesada (worldpop, desmorro) costuma estourar
+            # timeout enquanto o EE computa — cachear o transparente congelaria
+            # o buraco mesmo depois do EE aquecer. max-age curto → retry.
+            return _png_response(render.transparent_png(), etag, max_age=60)
 
     return _png_response(body, etag)
 
