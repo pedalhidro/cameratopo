@@ -760,7 +760,11 @@ const map = L.map("map", {
 
 // Um pane por camada (⧉): a PRECEDÊNCIA é o zIndex do pane, recalculado da
 // pilha. Ficam entre a base (tilePane, 200) e os overlays/marcadores (400).
-for (const l of EE_LAYERS) map.createPane("ly-" + l.id);
+// DENTRO do rotatePane do leaflet-rotate — createPane sem pai vai pro mapPane,
+// FORA da rotação: o mapa inteiro (bases/camadas/relevo, todos em panes ly-*)
+// ficava parado enquanto só bússola e marcador giravam ("mapa não gira").
+const rotPane = map.getPane("rotatePane");
+for (const l of EE_LAYERS) map.createPane("ly-" + l.id, rotPane || undefined);
 function applyStackZ() {
   P.stack.forEach((id, i) => { map.getPane("ly-" + id).style.zIndex = String(210 + i); });
 }
@@ -1273,6 +1277,16 @@ function startLocate() {
 $("btn-locate").addEventListener("click", () => (locateActive ? stopLocate() : startLocate()));
 map.on("locationfound", (e) => {
   if (!locateActive) return;
+  // Fixes de wifi/IP tremem dezenas de metros PARADO — em zoom aproximado o
+  // marcador ficava "dançando". Só move quando o deslocamento é significativo
+  // frente à precisão do próprio fix (teto de 50 m pra não prender quem anda).
+  if (userMarker) {
+    const d = map.distance(userMarker.getLatLng(), e.latlng);
+    if (d < Math.min(50, e.accuracy / 2)) {
+      if (userAccuracy) userAccuracy.setRadius(e.accuracy);
+      return;
+    }
+  }
   if (userAccuracy) userAccuracy.setLatLng(e.latlng).setRadius(e.accuracy);
   else userAccuracy = L.circle(e.latlng, { radius: e.accuracy, color: "#c0417d", weight: 1, opacity: 0.5, fillOpacity: 0.08 }).addTo(map);
   if (userMarker) userMarker.setLatLng(e.latlng);
@@ -1297,20 +1311,44 @@ $("btn-auto").addEventListener("click", () => { P.auto = !P.auto; applyAutoToggl
 map.on("rotate", () => { P.rot = map.getBearing() % 360; writeHash(); });
 (() => {
   const el = map.getContainer();
-  let rot = null;   // { x0, b0 } durante o gesto
-  el.addEventListener("pointerdown", (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
-    rot = { x0: e.clientX, b0: map.getBearing() };
+  let rot = null;        // { x0, b0, pivotPt, pivotLL } durante o gesto
+  let leftDown = false;  // botão esquerdo pressionado (arrasto em curso?)
+  function startRot(clientX, clientY) {
+    const r = el.getBoundingClientRect();
+    // pivô = o ponto onde o Cmd/Ctrl+clique COMEÇOU: o lugar "agarrado" fica
+    // parado sob o cursor durante o giro (zoom de roda já ancora no cursor).
+    const pt = L.point(clientX - r.left, clientY - r.top);
+    rot = { x0: clientX, b0: map.getBearing(), pivotPt: pt, pivotLL: map.containerPointToLatLng(pt) };
     map.dragging.disable();
-    try { el.setPointerCapture(e.pointerId); } catch (err) { /* ponteiro sintético */ }
-    e.preventDefault();
+    map._stop();           // mata inércia/animação de um pan em curso
+  }
+  function endRot() {
+    if (rot) { rot = null; map.dragging.enable(); }
+  }
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    leftDown = true;
+    if (e.ctrlKey || e.metaKey) {
+      startRot(e.clientX, e.clientY);
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* ponteiro sintético */ }
+      e.preventDefault();
+    }
   }, true);
   el.addEventListener("pointermove", (e) => {
-    if (rot) map.setBearing(rot.b0 + (e.clientX - rot.x0) * 0.4);   // ~0.4°/px
+    // Cmd/Ctrl apertado DEPOIS de começar o arrasto (ordem comum na prática):
+    // engata a rotação no meio do gesto — sem isso o pan continuava e parecia
+    // que "o comando não gira, só move o mapa".
+    if (!rot && leftDown && (e.ctrlKey || e.metaKey)) startRot(e.clientX, e.clientY);
+    if (!rot) return;
+    if (!(e.ctrlKey || e.metaKey)) { endRot(); return; }   // soltou o cmd → volta ao pan
+    map.setBearing(rot.b0 + (e.clientX - rot.x0) * 0.4);   // ~0.4°/px
+    // reancora: o pivô fica parado na tela durante o giro
+    const cur = map.latLngToContainerPoint(rot.pivotLL);
+    map.panBy(cur.subtract(rot.pivotPt), { animate: false, noMoveStart: true });
   });
-  const endRot = () => { if (rot) { rot = null; map.dragging.enable(); } };
-  el.addEventListener("pointerup", endRot);
-  el.addEventListener("pointercancel", endRot);
+  const endAll = () => { leftDown = false; endRot(); };
+  el.addEventListener("pointerup", endAll);
+  el.addEventListener("pointercancel", endAll);
   // ctrl-click no macOS dispara menu de contexto — suprime só durante/com Ctrl
   el.addEventListener("contextmenu", (e) => { if (rot || e.ctrlKey) e.preventDefault(); });
 })();
