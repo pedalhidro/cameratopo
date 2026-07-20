@@ -480,7 +480,9 @@
         Câmera Topográfica no Earth Engine: MapBiomas, luzes noturnas, índice de
         aridez, densidade populacional, eleições 2022, cobertura 3G, elevação,
         declives, Posição Topográfica Local, detector de desmorrodouros e rios
-        livres (HydroSHEDS) — mais os mapas base (OpenStreetMap, Satélite,
+        livres (HydroSHEDS) — mais o <b>Traçado OSM</b> (só as vias, ferrovias
+        e rios do OpenStreetMap, com o resto transparente: bom por cima do
+        relevo ou do satélite), os mapas base (OpenStreetMap, Satélite,
         Híbrido) no fundo e os seus <i>Desenhos</i> no topo.
         Cada linha tem <b>▲▼</b> (ordem de empilhamento),
         <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. As camadas de
@@ -610,6 +612,7 @@ const SS_CHOICES = [256, 512, 1024];
 // `dep` diz de quais params da UI a camada depende (entra na URL do tile);
 // `relevo` é a camada de relevo existente (qualquer fonte), só marcada aqui.
 const EE_LAYER_VERSION = "1";   // = ee_source.EE_LAYERS_VERSION — bump JUNTO
+const OSM_TRACADO_VERSION = "1";   // = osm_overlay.OSM_OVERLAY_VERSION — bump JUNTO
 const EE_LAYERS = [
   // bases (tiles diretos, não-EE) — fundo da pilha
   { id: "osm",      label: "OpenStreetMap", base: "osm",      op: 100 },
@@ -631,6 +634,10 @@ const EE_LAYERS = [
   { id: "ptl",            label: "Posição Topográfica Local (PTL)",  dep: "" },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
+  // traçado OSM: só vias/ferrovias/água, fundo transparente (proxy /osm/ do
+  // servidor — extração por cor do carto; estilo "touring" do OsmAnd). Vive
+  // no topo da pilha de propósito: é overlay pra pôr POR CIMA das outras.
+  { id: "tracado",        label: "Traçado OSM (vias e rios)",        xyz: "/osm/{z}/{x}/{y}.png", zmax: 19 },
   // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
   { id: "desenhos",       label: "Desenhos",                         draw: true, op: 100 },
 ];
@@ -858,7 +865,9 @@ function setReliefOpacity(frac) {
 // MESMOS números congelados do relevo, então seguem a tela e não têm costura.
 const eeLayerObjs = {};   // id → L.tileLayer
 function eeLayerUrl(id) {
-  const dep = LAYER_BY_ID[id].dep;
+  const l = LAYER_BY_ID[id];
+  if (l.xyz) return `${l.xyz}?v=${OSM_TRACADO_VERSION}`;   // tiles diretos do servidor (não-EE)
+  const dep = l.dep;
   const explicit = !P.auto || autoResolved;
   const q = new URLSearchParams();
   if (dep === "elev") {
@@ -917,8 +926,8 @@ function syncEeLayers() {
       if (!ly) {
         ly = eeLayerObjs[l.id] = L.tileLayer(url, {
           pane: "ly-" + l.id, opacity: layerOpacity(l.id) / 100,
-          maxNativeZoom: 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
-          attribution: "Camadas · Google Earth Engine",
+          maxNativeZoom: l.zmax || 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
+          attribution: l.xyz ? "© OpenStreetMap" : "Camadas · Google Earth Engine",
         });
         wireLoading(ly, l.id);
       } else if (ly._url !== url) ly.setUrl(url);

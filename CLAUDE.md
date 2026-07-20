@@ -40,6 +40,17 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `cameratopo-ee@` precisa de LEITURA nos assets (compartilhar no Code Editor
   ou `earthengine acl ch -u serviceAccount:…:R <asset>`); sem acesso → tile
   transparente. Local (ADC do dono) sempre funciona.
+- `osm_overlay.py` — camada **Traçado OSM** (`GET /osm/{z}/{x}/{y}.png`, linha
+  "tracado" do painel ⧉): proxy do tile carto padrão do osm.org + extração POR
+  COR (numpy, por pixel — sem vizinhança = sem costura por construção) que
+  mantém só vias/ferrovias/água, recoloridas mais escuras/saturadas, resto
+  alfa 0 — overlay estilo "touring" do OsmAnd pra pôr por cima do relevo.
+  Cores-alvo calibradas contra tiles reais do carto; se o estilo do osm.org
+  mudar, recalibrar e bumpar `OSM_OVERLAY_VERSION` JUNTO com
+  `OSM_TRACADO_VERSION` do index.html. Distâncias em **int32** (int16
+  estourava no quadrado e casava tudo). Falha de rede → transparente sem
+  cache (max-age=60), como as camadas EE. User-Agent identificado + cache de
+  7 dias (política de tiles do OSMF).
 - `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet (+
   leaflet-rotate, GPL-3.0) e IBM Plex Mono **vendorados** em `web/vendor/`
   (nada de CDN), strings em PT, estado todo no hash da URL, crossfade de

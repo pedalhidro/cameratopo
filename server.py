@@ -34,6 +34,7 @@ import os
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 import ee_source
+import osm_overlay
 import render
 
 app = Flask(__name__)
@@ -302,6 +303,33 @@ def ee_layer_tile(layer, z, x, y):
             # o 1º tile de camada pesada (worldpop, desmorro) costuma estourar
             # timeout enquanto o EE computa — cachear o transparente congelaria
             # o buraco mesmo depois do EE aquecer. max-age curto → retry.
+            return _png_response(render.transparent_png(), etag, max_age=60)
+
+    return _png_response(body, etag)
+
+
+@app.get("/osm/<int:z>/<int:x>/<int:y>.png")
+def osm_overlay_tile(z, x, y):
+    """Camada "Traçado OSM": vias/ferrovias/água do carto padrão com o resto
+    transparente (extração por cor em osm_overlay.py) — pra pôr POR CIMA do
+    relevo/satélite sem cobrir o fundo. Determinístico por (z,x,y,versão) →
+    cache/ETag como os tiles do relevo; falha de rede → transparente SEM
+    cachear (mesma convenção das camadas EE)."""
+    key = f"osmov{osm_overlay.OSM_OVERLAY_VERSION}/{z}/{x}/{y}"
+    etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
+
+    max_tile = 2 ** z - 1
+    if not (MIN_ZOOM <= z <= min(MAX_ZOOM, osm_overlay.OSM_MAX_ZOOM)
+            and 0 <= x <= max_tile and 0 <= y <= max_tile):
+        return _png_response(render.transparent_png(), etag)
+
+    body = render.cache_get(key)
+    if body is None:
+        try:
+            body = osm_overlay.render_overlay_tile(z, x, y)
+            render.cache_put(key, body)
+        except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
+            app.logger.warning("osm overlay %s falhou: %s", key, exc)
             return _png_response(render.transparent_png(), etag, max_age=60)
 
     return _png_response(body, etag)
