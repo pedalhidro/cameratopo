@@ -110,6 +110,10 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
 
 ## Gotchas de infra
 
+- **Módulo .py novo TEM que entrar no `COPY` do Dockerfile** (a lista é
+  explícita): sem ele o import quebra SÓ no container → worker do gunicorn
+  não sobe → 503 em tudo com o serviço `Ready` (mesmo sintoma do libexpat1;
+  foi o osm_overlay.py no deploy do traçado).
 - **Dockerfile precisa de `libexpat1`** na `python:3.12-slim`: sem ela o
   `import rasterio` quebra, o worker do gunicorn nunca sobe e o Cloud Run
   responde 503 em tudo — com o serviço parecendo `Ready` (o master do gunicorn
