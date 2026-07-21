@@ -148,7 +148,10 @@
   }
   input[type="number"]:disabled { opacity: 0.5; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .two .fld label { display: block; font-size: 10.5px; color: var(--panel-muted); margin-bottom: 4px; }
+  .three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  /* rótulo pode quebrar em 2 linhas ("Declive máx. (%)") — inputs alinham embaixo */
+  .three .fld { display: flex; flex-direction: column; justify-content: flex-end; }
+  .two .fld label, .three .fld label { display: block; font-size: 10.5px; color: var(--panel-muted); margin-bottom: 4px; }
 
   input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
   input[type="range"]:disabled { opacity: 0.5; }
@@ -409,25 +412,12 @@
     <div class="fld"><label for="emax">Elevação máx. (m)</label><input type="number" id="emax" step="10" inputmode="numeric"></div>
   </div>
 
-  <div class="row">
-    <div class="slider-head"><label for="slope">Declive máximo</label><span class="val" id="slope-val">16 %</span></div>
-    <div class="seg seg-mini" id="seg-slopeunit" role="group" aria-label="Unidade do declive">
-      <button data-unit="pct" aria-pressed="true">gradiente %</button>
-      <button data-unit="deg" aria-pressed="false">graus °</button>
-    </div>
-    <input type="range" id="slope" min="1" max="120" step="1" value="16">
-  </div>
-
-  <hr class="sep">
-
-  <div class="row">
-    <div class="slider-head"><label for="gamma">Correção gama do declive</label><span class="val" id="gamma-val">1.00</span></div>
-    <input type="range" id="gamma" min="-20" max="20" step="1" value="0">
-  </div>
-
-  <div class="row">
-    <div class="slider-head"><label for="cycles">Ciclos na paleta de elevação</label><span class="val" id="cycles-val">1</span></div>
-    <input type="range" id="cycles" min="1" max="16" step="1" value="1">
+  <!-- Digitáveis como a elevação (o declive é SEMPRE gradiente %; a exibição
+       em graus saiu junto com os sliders) -->
+  <div class="row three">
+    <div class="fld"><label for="slope">Declive máx. (%)</label><input type="number" id="slope" step="1" min="1" max="120" inputmode="decimal"></div>
+    <div class="fld"><label for="gamma">Correção gama</label><input type="number" id="gamma" step="0.1" min="0.0625" max="16" inputmode="decimal"></div>
+    <div class="fld"><label for="cycles">Ciclos paleta</label><input type="number" id="cycles" step="1" min="1" max="16" inputmode="numeric"></div>
   </div>
 
   <!-- Parâmetros da camada PTL (painel ⧉). A opacidade do relevo saiu daqui:
@@ -530,12 +520,12 @@
       <p>Faixa de elevação mapeada do começo ao fim da paleta. Estreitar a faixa
         aumenta o contraste de cor.</p>
 
-      <h3>Declive máximo (gradiente % ou graus °)</h3>
-      <p>Declividade que satura em preto — realça a topografia. O toggle só troca a
-        unidade de exibição (o cálculo é o mesmo).</p>
+      <h3>Declive máx. (%)</h3>
+      <p>Declividade (gradiente %, de 1 a 120) que satura em preto — realça a
+        topografia.</p>
 
-      <h3>Correção gama do declive</h3>
-      <p>Escala log₂: <code>1/16</code> … <code>1.0</code> (meio) … <code>16</code>.
+      <h3>Correção gama</h3>
+      <p>De <code>1/16</code> a <code>16</code> (padrão <code>1.0</code>).
         &gt;1 suaviza o escurecimento das encostas; &lt;1 endurece.</p>
 
       <h3>Ciclos na paleta de elevação</h3>
@@ -599,7 +589,7 @@ const DEFAULTS = {
   dem: "ee", auto: false,
   emin: 700, emax: 1200, slope: 16,
   gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
-  slopeUnit: "pct", rot: 0,   // rotação do mapa (graus)
+  rot: 0,   // rotação do mapa (graus)
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
   ptlSd: 2.0, ptlKernel: 1000,   // PTL: ±desvios que saturam · diâmetro (m)
 };
@@ -695,7 +685,6 @@ function readHash() {
   P.slope = num("slope", P.slope);
   P.gamma = num("gamma", P.gamma); P.cycles = Math.round(num("cycles", P.cycles));
   P.opacity = Math.round(num("op", P.opacity));
-  if (h.get("su") === "deg") P.slopeUnit = "deg";
   P.rot = num("rot", 0) % 360;
   const ss = Math.round(num("ss", P.ss));
   if (SS_CHOICES.includes(ss)) P.ss = ss;
@@ -744,7 +733,7 @@ function commitHash() {
   q.set("auto", P.auto ? "1" : "0");
   if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
   q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
-  q.set("su", P.slopeUnit); q.set("ss", P.ss);
+  q.set("ss", P.ss);
   q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
   // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
@@ -1095,33 +1084,11 @@ function toast(msg) {
 const $ = (id) => document.getElementById(id);
 
 // Declive: o estado (P.slope) é sempre GRADIENTE % (fonte da verdade; a URL de
-// tiles usa slopeMax = P.slope/100 em m/m). A unidade só muda a EXIBIÇÃO e a
-// escala do slider: gradiente % (tan·100) ou graus (o ângulo, atan).
+// tiles usa slopeMax = P.slope/100 em m/m). Campo digitável, SÓ em gradiente —
+// a exibição em graus saiu junto com os sliders.
 const SLOPE_MAX_PCT = 120;   // teto do gradiente % (≈ 50°)
-const SLOPE_UNITS = {
-  pct: { label: "%", min: 1, max: SLOPE_MAX_PCT, step: 1,
-         toDisp: (p) => Math.round(p),
-         fromDisp: (v) => v },
-  deg: { label: "°", min: 1, max: 50, step: 1,
-         toDisp: (p) => Math.round(Math.atan(p / 100) * 180 / Math.PI),
-         fromDisp: (v) => Math.tan(v * Math.PI / 180) * 100 },
-};
-const slopeCfg = () => SLOPE_UNITS[P.slopeUnit] || SLOPE_UNITS.pct;
-function syncSlopeWidget() {
-  const u = slopeCfg(), sl = $("slope");
-  sl.min = u.min; sl.max = u.max; sl.step = u.step;
-  sl.value = Math.max(u.min, Math.min(u.max, u.toDisp(P.slope)));
-  sl.disabled = P.auto;
-  $("slope-val").textContent = `${u.toDisp(P.slope)} ${u.label}`;
-  for (const b of $("seg-slopeunit").children)
-    b.setAttribute("aria-pressed", String(b.dataset.unit === P.slopeUnit));
-}
 
-// Gama em escala log2: slider i∈[-20,20] (passo 2^(i/5)); i=0 → 1.0 (meio),
-// i=-20 → 1/16, i=20 → 16. P.gamma guarda o valor real (vai pra slopeGamma).
-const GAMMA_MIN = -20, GAMMA_MAX = 20;
-const gammaToStep = (g) => Math.max(GAMMA_MIN, Math.min(GAMMA_MAX, Math.round(5 * Math.log2(g > 0 ? g : 1))));
-const stepToGamma = (i) => Math.pow(2, i / 5);
+// γ digitável direto (1/16 … 16; P.gamma guarda o valor real → slopeGamma)
 const fmtGamma = (g) => g < 0.995 ? g.toFixed(3) : (g >= 9.995 ? g.toFixed(1) : g.toFixed(2));
 
 // Reflete o estado nos widgets. Em auto ainda não resolvido, os campos de
@@ -1134,9 +1101,11 @@ function syncInputs() {
   $("emax").value = Math.round(P.emax);
   $("emin").disabled = $("emax").disabled = P.auto;
   const autoBtn = $("btn-auto"); if (autoBtn) autoBtn.setAttribute("aria-pressed", String(P.auto));
-  syncSlopeWidget();
-  $("gamma").value = gammaToStep(P.gamma); $("gamma-val").textContent = fmtGamma(P.gamma);
-  $("cycles").value = P.cycles; $("cycles-val").textContent = P.cycles;
+  // campos digitáveis: não sobrescreve o que está em edição (como o PTL)
+  if (document.activeElement !== $("slope")) $("slope").value = Math.round(P.slope);
+  $("slope").disabled = P.auto;
+  if (document.activeElement !== $("gamma")) $("gamma").value = fmtGamma(P.gamma);
+  if (document.activeElement !== $("cycles")) $("cycles").value = P.cycles;
   // PTL: não sobrescreve o campo em edição (o input dispara syncEeLayers, que
   // não chama syncInputs — mas o auto/hashchange chamam)
   if (document.activeElement !== $("ptl-sd")) $("ptl-sd").value = P.ptlSd;
@@ -1164,27 +1133,25 @@ function onElev() {
 }
 $("emin").addEventListener("input", onElev);
 $("emax").addEventListener("input", onElev);
-// declive (o valor arrastado está na unidade atual → converte pra gradiente %)
+// declive (gradiente %, digitado)
 $("slope").addEventListener("input", (e) => {
-  const u = slopeCfg();
-  P.slope = Math.max(1, Math.min(SLOPE_MAX_PCT, u.fromDisp(parseFloat(e.target.value))));
-  $("slope-val").textContent = `${u.toDisp(P.slope)} ${u.label}`;
+  const v = parseFloat(e.target.value);
+  if (!Number.isFinite(v)) return;
+  P.slope = Math.max(1, Math.min(SLOPE_MAX_PCT, v));
   refreshTiles(); writeHash();
 });
-// unidade do declive (%↔°): só reexibe; não mexe nos tiles
-$("seg-slopeunit").addEventListener("click", (e) => {
-  const b = e.target.closest("button"); if (!b || b.dataset.unit === P.slopeUnit) return;
-  P.slopeUnit = b.dataset.unit; syncSlopeWidget(); writeHash();
-});
-// gama (escala log2)
+// gama (valor real, digitado: 1/16 … 16)
 $("gamma").addEventListener("input", (e) => {
-  P.gamma = stepToGamma(parseInt(e.target.value, 10));
-  $("gamma-val").textContent = fmtGamma(P.gamma);
+  const v = parseFloat(e.target.value);
+  if (!Number.isFinite(v)) return;
+  P.gamma = Math.min(16, Math.max(0.0625, v));
   refreshTiles(); writeHash();
 });
-// ciclos
+// ciclos (inteiro, digitado: 1 … 16)
 $("cycles").addEventListener("input", (e) => {
-  P.cycles = parseInt(e.target.value, 10); $("cycles-val").textContent = P.cycles;
+  const v = parseInt(e.target.value, 10);
+  if (!Number.isFinite(v)) return;
+  P.cycles = Math.min(16, Math.max(1, v));
   updateLegend(); refreshTiles(); writeHash();
 });
 // PTL (desvios que saturam · diâmetro do círculo): só a camada /ee/ptl/ usa
