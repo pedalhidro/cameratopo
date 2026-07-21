@@ -125,8 +125,17 @@ def _resolve_params(dem):
     max_read = int(ss) if ss else render.MAX_READ_SIZE
     max_read = max(render.MIN_READ_SIZE, min(render.SS_HARD_MAX, max_read))
 
+    # PTL (camada /ee/ptl/): ±N desvios que saturam a paleta e diâmetro (m) do
+    # círculo de vizinhança. Clampes largos vs. o app GEE (0.1–3 / 60–1000) mas
+    # com teto — kernel gigante = custo de computação no EE (endpoint público).
+    ptl_sd = _fnum("ptlSd") or ee_source.PTL_MAX_SD
+    ptl_sd = min(10.0, max(0.1, ptl_sd))
+    ptl_kernel = _fnum("ptlKernel") or ee_source.PTL_KERNEL_M
+    ptl_kernel = min(3000.0, max(30.0, ptl_kernel))
+
     return dict(elev_min=elev_min, elev_max=elev_max, slope_max=slope_max,
-                gamma=gamma, cycles=cycles, max_read=max_read)
+                gamma=gamma, cycles=cycles, max_read=max_read,
+                ptl_sd=ptl_sd, ptl_kernel=ptl_kernel)
 
 
 def _png_response(body, etag, max_age=None):

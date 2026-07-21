@@ -430,15 +430,20 @@
     <input type="range" id="cycles" min="1" max="16" step="1" value="1">
   </div>
 
-  <div class="row">
-    <div class="slider-head"><label for="opacity">Opacidade do relevo</label><span class="val" id="opacity-val">90 %</span></div>
-    <input type="range" id="opacity" min="0" max="100" step="1" value="90">
+  <!-- Parâmetros da camada PTL (painel ⧉). A opacidade do relevo saiu daqui:
+       é a linha "Relevo" do painel de camadas, como as outras. -->
+  <div class="row two">
+    <div class="fld"><label for="ptl-sd">Desvios p/ PTL</label><input type="number" id="ptl-sd" step="0.1" min="0.1" inputmode="decimal"></div>
+    <div class="fld"><label for="ptl-k">Diâmetro PTL (m)</label><input type="number" id="ptl-k" step="30" min="30" inputmode="numeric"></div>
   </div>
 
   <hr class="sep">
 
   <div class="btns">
-    <button class="act" id="btn-copy-tiles">⧉ Copiar URL de tiles (XYZ)</button>
+    <div class="two">
+      <button class="act" id="btn-copy-tiles">⧉ Copiar URL telhas (Topocor)</button>
+      <button class="act" id="btn-copy-ptl">⧉ Copiar URL telhas (PTL)</button>
+    </div>
     <div id="tiles-url" class="url-label" hidden></div>
     <button class="act" id="btn-copy-link">🔗 Copiar link desta vista</button>
     <div id="link-url" class="url-label" hidden></div>
@@ -480,14 +485,16 @@
         Câmera Topográfica no Earth Engine: MapBiomas, luzes noturnas, índice de
         aridez, densidade populacional, eleições 2022, cobertura 3G, elevação,
         declives, Posição Topográfica Local, detector de desmorrodouros e rios
-        livres (HydroSHEDS) — mais o <b>Traçado OSM</b> (só as vias, ferrovias
+        livres (HydroSHEDS) — mais o <b>MTPI</b> (índice de posição topográfica
+        multiescala, tiles prontos do amora: Pindorama 90m/COP90 e Bacia do
+        Paraná 30m), o <b>Traçado OSM</b> (só as vias, ferrovias
         e rios do OpenStreetMap, com o resto transparente: bom por cima do
         relevo ou do satélite), os mapas base (OpenStreetMap, Satélite,
         Híbrido) no fundo e os seus <i>Desenhos</i> no topo.
         Cada linha tem <b>▲▼</b> (ordem de empilhamento),
         <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. As camadas de
-        elevação/declive seguem os parâmetros do painel ☰ (inclusive a faixa
-        automática). São renderizadas pelo Earth Engine — a primeira carga de
+        elevação/declive/PTL seguem os parâmetros do painel ☰ (inclusive a
+        faixa automática). São renderizadas pelo Earth Engine — a primeira carga de
         uma camada pesada pode demorar alguns segundos.</p>
 
       <h3>Botões do mapa (📍 · A · ✏ · 👁)</h3>
@@ -535,14 +542,17 @@
       <p>Repete a paleta cíclica N vezes ao longo da faixa — vira “curvas de nível”
         coloridas.</p>
 
-      <h3>Opacidade do relevo</h3>
-      <p>Transparência da camada de relevo. Os mapas base (OpenStreetMap,
-        Satélite, Híbrido) agora são linhas do painel de camadas ⧉ — dá pra
-        ligar mais de um e regular a opacidade de cada.</p>
+      <h3>Desvios p/ PTL · Diâmetro PTL</h3>
+      <p>Parâmetros da camada <b>Posição Topográfica Local</b> (painel ⧉),
+        iguais aos do app GEE: quantos desvios-padrão saturam a paleta (±N) e
+        o tamanho, em metros, do círculo de vizinhança usado na média/desvio.
+        A <b>opacidade do relevo</b> agora é a linha <i>Relevo</i> do painel de
+        camadas ⧉, como as demais camadas.</p>
 
-      <h3>Copiar URL de tiles (XYZ) · Copiar link desta vista</h3>
-      <p>A URL de tiles (<code>/{z}/{x}/{y}.png?…</code>) serve pra embutir o relevo
-        em qualquer cliente de mapa. O link desta vista guarda todo o estado no
+      <h3>Copiar URL telhas (Topocor · PTL) · Copiar link desta vista</h3>
+      <p>As URLs de telhas (<code>/{z}/{x}/{y}.png?…</code> do relevo Topocor;
+        <code>/ee/ptl/…</code> da PTL) servem pra embutir as camadas em
+        qualquer cliente de mapa. O link desta vista guarda todo o estado no
         hash da URL, então uma configuração é compartilhável.</p>
 
       <h3>Avançado — qualidade do relevo (superamostragem)</h3>
@@ -591,6 +601,7 @@ const DEFAULTS = {
   gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
   slopeUnit: "pct", rot: 0,   // rotação do mapa (graus)
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
+  ptlSd: 2.0, ptlKernel: 1000,   // PTL: ±desvios que saturam · diâmetro (m)
 };
 
 // Versão do renderizador (= render.RENDER_VERSION do servidor). Vai na
@@ -611,7 +622,7 @@ const SS_CHOICES = [256, 512, 1024];
 // empilhamento padrão, FUNDO → TOPO (a ordem de addLayer do app GEE).
 // `dep` diz de quais params da UI a camada depende (entra na URL do tile);
 // `relevo` é a camada de relevo existente (qualquer fonte), só marcada aqui.
-const EE_LAYER_VERSION = "1";   // = ee_source.EE_LAYERS_VERSION — bump JUNTO
+const EE_LAYER_VERSION = "2";   // = ee_source.EE_LAYERS_VERSION — bump JUNTO
 const OSM_TRACADO_VERSION = "1";   // = osm_overlay.OSM_OVERLAY_VERSION — bump JUNTO
 const EE_LAYERS = [
   // bases (tiles diretos, não-EE) — fundo da pilha
@@ -631,13 +642,24 @@ const EE_LAYERS = [
   { id: "elevacao",       label: "Elevação (FABDEM)",                dep: "elev" },
   { id: "declive",        label: "Declive (branco no escuro)",       dep: "slope" },
   { id: "declive-inv",    label: "Declive (escuro no branco)",       dep: "slope" },
-  { id: "ptl",            label: "Posição Topográfica Local (PTL)",  dep: "" },
+  { id: "ptl",            label: "Posição Topográfica Local (PTL)",  dep: "ptl" },
+  // MTPI (índice de posição topográfica multiescala) — tiles XYZ PRONTOS de
+  // telhas.pedalhidrografi.co, as mesmas camadas do amora (nada de EE aqui);
+  // nativos até `zmax` (COP90 z10 / Paraná 30 m z12), acima o Leaflet reamplia.
+  { id: "mtpi-pindorama", label: "MTPI Pindorama 90m",
+    xyz: "https://telhas.pedalhidrografi.co/mtpi_cop90_sa_full/{z}/{x}/{y}.png",
+    zmax: 10, attr: "MTPI COP90 · Pedal Hidrográfico", op: 100 },
+  { id: "mtpi-parana",    label: "MTPI Bacia do Paraná 30m",
+    xyz: "https://telhas.pedalhidrografi.co/mtpi_bacia_parana_30/{z}/{x}/{y}.png",
+    zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100 },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
   // traçado OSM: só vias/ferrovias/água, fundo transparente (proxy /osm/ do
   // servidor — extração por cor do carto; estilo "touring" do OsmAnd). Vive
   // no topo da pilha de propósito: é overlay pra pôr POR CIMA das outras.
-  { id: "tracado",        label: "Traçado OSM (vias e rios)",        xyz: "/osm/{z}/{x}/{y}.png", zmax: 19 },
+  { id: "tracado",        label: "Traçado OSM (vias e rios)",
+    xyz: "/osm/{z}/{x}/{y}.png?v=" + OSM_TRACADO_VERSION,
+    zmax: 19, attr: "© OpenStreetMap" },
   // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
   { id: "desenhos",       label: "Desenhos",                         draw: true, op: 100 },
 ];
@@ -677,6 +699,8 @@ function readHash() {
   P.rot = num("rot", 0) % 360;
   const ss = Math.round(num("ss", P.ss));
   if (SS_CHOICES.includes(ss)) P.ss = ss;
+  P.ptlSd = Math.min(10, Math.max(0.1, num("psd", P.ptlSd)));
+  P.ptlKernel = Math.min(3000, Math.max(30, num("pk", P.ptlKernel)));
 
   // ly= camadas VISÍVEIS, fundo→topo, `id:opacidade%` (relevo sem %, usa op=).
   // Ausente → só o relevo, pilha padrão. As ocultas ficam embaixo na ordem
@@ -721,6 +745,7 @@ function commitHash() {
   if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
   q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
   q.set("su", P.slopeUnit); q.set("ss", P.ss);
+  q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
   // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
   const seq = P.stack.filter((id) => P.lyOn[id])
@@ -866,7 +891,7 @@ function setReliefOpacity(frac) {
 const eeLayerObjs = {};   // id → L.tileLayer
 function eeLayerUrl(id) {
   const l = LAYER_BY_ID[id];
-  if (l.xyz) return `${l.xyz}?v=${OSM_TRACADO_VERSION}`;   // tiles diretos do servidor (não-EE)
+  if (l.xyz) return l.xyz;   // tiles XYZ diretos (não-EE): traçado OSM, MTPI
   const dep = l.dep;
   const explicit = !P.auto || autoResolved;
   const q = new URLSearchParams();
@@ -877,6 +902,9 @@ function eeLayerUrl(id) {
   } else if (dep === "slope") {
     q.set("slopeMax", explicit ? String(P.slope / 100) : "auto");
     q.set("slopeGamma", String(P.gamma));
+  } else if (dep === "ptl") {
+    q.set("ptlSd", String(P.ptlSd));
+    q.set("ptlKernel", String(P.ptlKernel));
   }
   q.set("v", EE_LAYER_VERSION);
   return `/ee/${id}/{z}/{x}/{y}.png?${q.toString()}`;
@@ -927,7 +955,7 @@ function syncEeLayers() {
         ly = eeLayerObjs[l.id] = L.tileLayer(url, {
           pane: "ly-" + l.id, opacity: layerOpacity(l.id) / 100,
           maxNativeZoom: l.zmax || 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
-          attribution: l.xyz ? "© OpenStreetMap" : "Camadas · Google Earth Engine",
+          attribution: l.attr || "Camadas · Google Earth Engine",
         });
         wireLoading(ly, l.id);
       } else if (ly._url !== url) ly.setUrl(url);
@@ -967,7 +995,7 @@ function rebuildLayersPanel() {
     row.querySelector("input[type=range]").addEventListener("input", (e) => {
       const v = parseInt(e.target.value, 10);
       if (id === "relevo") {
-        P.opacity = v; setReliefOpacity(v / 100); syncInputs();  // espelha o painel ☰
+        P.opacity = v; setReliefOpacity(v / 100);   // único controle de opacidade do relevo
       } else {
         P.lyOp[id] = v;
         if (l.base || l.draw) map.getPane("ly-" + id).style.opacity = String(v / 100);
@@ -1109,7 +1137,10 @@ function syncInputs() {
   syncSlopeWidget();
   $("gamma").value = gammaToStep(P.gamma); $("gamma-val").textContent = fmtGamma(P.gamma);
   $("cycles").value = P.cycles; $("cycles-val").textContent = P.cycles;
-  $("opacity").value = P.opacity; $("opacity-val").textContent = `${P.opacity} %`;
+  // PTL: não sobrescreve o campo em edição (o input dispara syncEeLayers, que
+  // não chama syncInputs — mas o auto/hashchange chamam)
+  if (document.activeElement !== $("ptl-sd")) $("ptl-sd").value = P.ptlSd;
+  if (document.activeElement !== $("ptl-k")) $("ptl-k").value = P.ptlKernel;
   for (const b of $("seg-dem").children) b.setAttribute("aria-pressed", String(b.dataset.dem === P.dem));
   for (const b of $("seg-ss").children) b.setAttribute("aria-pressed", String(Number(b.dataset.ss) === P.ss));
 }
@@ -1156,11 +1187,20 @@ $("cycles").addEventListener("input", (e) => {
   P.cycles = parseInt(e.target.value, 10); $("cycles-val").textContent = P.cycles;
   updateLegend(); refreshTiles(); writeHash();
 });
-// opacidade (não recarrega tiles — só setOpacity); espelha a linha do relevo no ⧉
-$("opacity").addEventListener("input", (e) => {
-  P.opacity = parseInt(e.target.value, 10); $("opacity-val").textContent = `${P.opacity} %`;
-  setReliefOpacity(P.opacity / 100); syncLayersPanelValues(); writeHash();
-});
+// PTL (desvios que saturam · diâmetro do círculo): só a camada /ee/ptl/ usa
+// esses params — atualiza direto as camadas ⧉ (sem crossfade do relevo, que
+// não muda). Debounce pra digitação não cunhar um mapid por tecla.
+let ptlTimer = null;
+function onPtl() {
+  const sd = parseFloat($("ptl-sd").value), k = parseFloat($("ptl-k").value);
+  if (Number.isFinite(sd)) P.ptlSd = Math.min(10, Math.max(0.1, sd));
+  if (Number.isFinite(k)) P.ptlKernel = Math.min(3000, Math.max(30, k));
+  clearTimeout(ptlTimer);
+  ptlTimer = setTimeout(syncEeLayers, 400);
+  writeHash();
+}
+$("ptl-sd").addEventListener("input", onPtl);
+$("ptl-k").addEventListener("input", onPtl);
 // DEM
 $("seg-dem").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -1194,7 +1234,14 @@ $("btn-copy-tiles").addEventListener("click", () => {
   const u = tileUrl(true);
   const label = $("tiles-url");
   label.textContent = u; label.hidden = false;     // mostra a URL numa label embaixo
-  copy(u, "URL de tiles copiada");
+  copy(u, "URL de telhas do Topocor copiada");
+});
+// PTL: mesma label de URL (mostra a do último botão clicado)
+$("btn-copy-ptl").addEventListener("click", () => {
+  const u = location.origin + eeLayerUrl("ptl");
+  const label = $("tiles-url");
+  label.textContent = u; label.hidden = false;
+  copy(u, "URL de telhas da PTL copiada");
 });
 $("btn-copy-link").addEventListener("click", () => {
   commitHash();                                     // grava extent + config no hash

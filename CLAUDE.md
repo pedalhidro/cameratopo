@@ -54,7 +54,10 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
 - `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet (+
   leaflet-rotate, GPL-3.0) e IBM Plex Mono **vendorados** em `web/vendor/`
   (nada de CDN), strings em PT, estado todo no hash da URL, crossfade de
-  camadas de tile. É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
+  camadas de tile. Camadas do painel ⧉ com campo `xyz` no catálogo são tiles
+  XYZ diretos, sem EE: o traçado OSM (`/osm/`, do próprio servidor) e os MTPI
+  Pindorama 90m/Bacia do Paraná 30m (telhas.pedalhidrografi.co, os mesmos do
+  amora — nativos até z10/z12 via `zmax`). É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
   stale-while-revalidate; tiles/stats SÓ rede) + ícones renderizados pelo
   próprio render.py. **Bump do `VERSION` do sw.js em QUALQUER mudança de
   arquivo servido** (convenção do workspace) — além do par

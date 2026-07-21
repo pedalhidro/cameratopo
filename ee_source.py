@@ -45,7 +45,7 @@ EE_VERSION = "1"
 # Versão do REGISTRY de camadas (endpoint /ee/<camada>/…): chave de cache/ETag
 # dos tiles das camadas E o `v=` que a UI manda. Bumpe ao mudar qualquer
 # expressão de camada (independente da composição acima).
-EE_LAYERS_VERSION = "1"
+EE_LAYERS_VERSION = "2"
 
 # Projeto GCP registrado no Earth Engine em cujo nome os getMapId são feitos.
 EE_PROJECT = os.environ.get("CAMERATOPO_EE_PROJECT") or "pedal-hidrografico"
@@ -359,7 +359,11 @@ def _ly_declive_inv(p):
 
 
 def _ly_ptl(p):
-    return _ptl().visualize(min=-PTL_MAX_SD, max=PTL_MAX_SD, palette=CURL7)
+    """PTL parametrizada como no app GEE: ±N desvios saturam a paleta e o
+    círculo da vizinhança tem `ptl_kernel` metros (sliders do painel ☰)."""
+    sd = p.get("ptl_sd", PTL_MAX_SD)
+    return _ptl(p.get("ptl_kernel", PTL_KERNEL_M)).visualize(
+        min=-sd, max=sd, palette=CURL7)
 
 
 def _ly_rios(p):
@@ -385,7 +389,7 @@ LAYERS = {
     "elevacao": (_ly_elevacao, "elev"),
     "declive": (_ly_declive, "slope"),
     "declive-inv": (_ly_declive_inv, "slope"),
-    "ptl": (_ly_ptl, ""),
+    "ptl": (_ly_ptl, "ptl"),
     "rios": (_ly_rios, ""),
 }
 
@@ -398,6 +402,8 @@ def layer_param_sig(layer, p):
         return f"e={p['elev_min']:.3f},{p['elev_max']:.3f}&c={p['cycles']}"
     if dep == "slope":
         return f"s={p['slope_max']:.6f}&g={p['gamma']:.3f}"
+    if dep == "ptl":
+        return f"psd={p['ptl_sd']:.2f}&pk={p['ptl_kernel']:.0f}"
     return ""
 
 
