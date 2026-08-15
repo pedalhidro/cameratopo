@@ -172,7 +172,8 @@ def vendor(p):
 
 # PWA + SEO: whitelist explícita (nada de servir web/ inteiro por rota genérica)
 @app.get("/<any('manifest.json', 'sw.js', 'icon-192.png', 'icon-512.png',"
-         " 'robots.txt', 'sitemap.xml', 'llms.txt', 'og.png'):f>")
+         " 'icon-512-maskable.png', 'robots.txt', 'sitemap.xml', 'llms.txt',"
+         " 'og.png'):f>")
 def pwa_file(f):
     resp = send_from_directory(WEB_DIR, f)
     if f == "sw.js":

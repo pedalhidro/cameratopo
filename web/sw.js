@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const VERSION = "10";
+const VERSION = "11";
 const CACHE = `cameratopo-v${VERSION}`;
 
 const SHELL = [
@@ -21,6 +21,7 @@ const SHELL = [
   "manifest.json",
   "icon-192.png",
   "icon-512.png",
+  "icon-512-maskable.png",
   "vendor/leaflet/leaflet.css",
   "vendor/leaflet/leaflet.js",
   "vendor/leaflet-rotate/leaflet-rotate.js",
