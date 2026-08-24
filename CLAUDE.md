@@ -2,8 +2,9 @@
 
 Tile server XYZ de relevo + UI Leaflet, repo próprio da org (extraído do
 `amora/` com história preservada; o amora só **consome** os tiles como camada).
-Elevação (FABDEM global ~30 m / DEM-SP ~5 m, COGs em
-`telhas.pedalhidrografi.co`) vira cor pela paleta cíclica **cmocean.phase**,
+Elevação (FABDEM global ~30 m, COGs no R2 em `fabdem.pedalhidrografi.co`, tiles
+na raiz / DEM-SP ~5 m em `telhas.pedalhidrografi.co`) vira cor pela paleta
+cíclica **cmocean.phase**,
 multiplicada por um realce de declividade branco→preto γ-corrigido. A matemática
 é um porte servidor do app de Google Earth Engine — **`ee-cameratopo.js` é a
 referência canônica do comportamento-alvo** (não roda aqui; documentação viva).

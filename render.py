@@ -4,8 +4,9 @@ Porta pro servidor a MESMA matemática que `web/app.js` faz no cliente
 (`computeSlope` + `renderReliefToDataURL`): elevação na paleta cmocean.phase
 (cíclica, perceptual) multiplicada por um realce de declividade branco→preto
 γ-corrigido. A diferença é que aqui cada tile Web-Mercator é renderizado
-independentemente a partir dos COGs do FABDEM / DEM de SP (hospedados no
-telhas), o que exige que os parâmetros de faixa (elevMin/elevMax/slopeMax) sejam
+independentemente a partir dos COGs do FABDEM (R2, fabdem.pedalhidrografi.co) /
+DEM de SP (telhas), o que exige que os parâmetros de faixa
+(elevMin/elevMax/slopeMax) sejam
 CONSTANTES em toda a grade de tiles — senão cada tile normalizaria diferente e
 apareceriam costuras. Por isso eles vêm da querystring (ver server.py); o valor
 `auto` é resolvido UMA vez sobre uma região de referência fixa e cacheado, então
@@ -32,7 +33,7 @@ from rio_tiler.mosaic import mosaic_reader
 import morecantile
 
 # ── Fontes de DEM (mesmas URLs que o cliente usa) ────────────────────────────
-FABDEM_BASE_URL = "https://telhas.pedalhidrografi.co/fabdem/"
+FABDEM_BASE_URL = "https://fabdem.pedalhidrografi.co/"
 SAMPA_DEM_URL = "https://telhas.pedalhidrografi.co/dem/sampa_geral.tif"
 
 # Região de referência p/ o modo `auto` (Região Metropolitana de São Paulo).
@@ -48,7 +49,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "4"
+RENDER_VERSION = "5"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a

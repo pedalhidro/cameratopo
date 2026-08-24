@@ -5,8 +5,9 @@ Serve o relevo da **Câmera Topográfica** como tiles XYZ padrão
 `web/app.js` (ou em qualquer cliente de mapa). Renderiza a MESMA imagem que o
 app fazia no cliente — elevação na paleta cmocean.phase (cíclica, perceptual)
 multiplicada por um realce de declividade branco→preto γ-corrigido — só que
-por tile e no servidor, lendo os COGs do FABDEM / DEM de SP hospedados no
-`telhas.pedalhidrografi.co` (read-only, via `/vsicurl/`).
+por tile e no servidor, lendo os COGs do FABDEM (R2 da Cloudflare,
+`fabdem.pedalhidrografi.co`, tiles na raiz) e do DEM de SP
+(`telhas.pedalhidrografi.co`) — read-only, via `/vsicurl/`.
 
 Como o `eink/`, é **deliberadamente fora do backend do amora**: não toca
 catálogo nem estado, só lê COGs públicos. Roda em qualquer lugar — laptop,
@@ -145,4 +146,5 @@ Cloud Run ou um worker/proxy da Cloudflare, como os outros subdomínios). Deixe
 a Cloudflare cachear com a querystring na chave.
 
 > Ajuste `--region`/nome ao seu projeto. O serviço só precisa de saída HTTPS
-> pro host dos COGs (`telhas.pedalhidrografi.co`); não usa credencial nenhuma.
+> pros hosts dos COGs (`fabdem.pedalhidrografi.co` pro FABDEM,
+> `telhas.pedalhidrografi.co` pro DEM-SP); não usa credencial nenhuma.
