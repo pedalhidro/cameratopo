@@ -35,6 +35,13 @@ import morecantile
 # ── Fontes de DEM (mesmas URLs que o cliente usa) ────────────────────────────
 FABDEM_BASE_URL = "https://fabdem.pedalhidrografi.co/"
 SAMPA_DEM_URL = "https://telhas.pedalhidrografi.co/dem/sampa_geral.tif"
+# O COG do DEM-SP não declara nodata: fora da cobertura o valor é 0 (e uns
+# resíduos ~1e-9), e o retângulo tem uma faixa de zeros na borda. Sem isto a
+# reamostragem mistura 0 m com 700 m e a borda vira um aro laranja/preto
+# (cor de wrap da paleta + "penhasco" de declividade). nodata=0 faz o GDAL
+# mascarar/ignorar esses pixels na reamostragem; o piso pega os resíduos.
+SAMPA_READER_OPTS = {"nodata": 0}
+SAMPA_MIN_VALID_M = 1.0
 
 # Região de referência p/ o modo `auto` (Região Metropolitana de São Paulo).
 # Os percentis são calculados aqui uma vez e reusados por toda a grade de tiles.
@@ -49,7 +56,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "5"
+RENDER_VERSION = "6"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -154,7 +161,7 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
     resampling = resampling or RESAMPLING
     try:
         if dem == "sp":
-            with Reader(SAMPA_DEM_URL) as r:
+            with Reader(SAMPA_DEM_URL, options=SAMPA_READER_OPTS) as r:
                 img = r.tile(x, y, z, tilesize=tilesize, buffer=buffer,
                              resampling_method=resampling)
         else:
@@ -183,6 +190,8 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
         mask = np.isfinite(height)
     else:
         mask = (~band.mask) & np.isfinite(height)
+    if dem == "sp":
+        mask &= height > SAMPA_MIN_VALID_M
     return height, mask
 
 
@@ -443,7 +452,7 @@ def _read_dem_part(dem, bbox, max_size=512):
               resampling_method=RESAMPLING)
     try:
         if dem == "sp":
-            with Reader(SAMPA_DEM_URL) as r:
+            with Reader(SAMPA_DEM_URL, options=SAMPA_READER_OPTS) as r:
                 img = r.part(bbox, **kw)
         else:
             assets = _fabdem_assets_for_bounds(w, s, e, n)
