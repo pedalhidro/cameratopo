@@ -19,11 +19,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY render.py server.py ee_source.py osm_overlay.py ./
 COPY web ./web
 
-# Leitura eficiente de COG remoto via /vsicurl/.
+# Leitura eficiente de COG remoto via /vsicurl/. GDAL_CACHEMAX (MB) explícito:
+# o default é % da RAM que o GDAL ENXERGA, que num container pode ser a do host
+# — e a memória do Cloud Run é pequena (ver OOM em CLAUDE.md).
 ENV GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR \
     CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif \
     GDAL_HTTP_MULTIRANGE=YES \
     VSI_CACHE=TRUE \
+    GDAL_CACHEMAX=64 \
     PORT=8080
 
 # 1 worker (estado só é cache em memória; concorrência vem das threads, escala

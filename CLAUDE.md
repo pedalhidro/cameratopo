@@ -10,7 +10,12 @@ multiplicada por um realce de declividade branco→preto γ-corrigido. A matemá
 referência canônica do comportamento-alvo** (não roda aqui; documentação viva).
 
 - `server.py` — Flask: `GET /{z}/{x}/{y}.png` (tiles), `GET /` + `/index.html`
-  (UI), `GET /vendor/<p>`, `GET /stats` (percentis por bbox), `GET /health`.
+  (UI), `GET /vendor/<p>`, `GET /stats` (percentis por bbox), `GET /health`,
+  `GET /terrain/{z}/{x}/{y}.png?dem=` (terreno do modo 3D, ver abaixo),
+  `GET /field/{z}/{x}/{y}.png?dem=&ss=` (campos pro navegador colorir).
+  Tile ainda na fila cujo cliente já desistiu (`_client_gone`, espia o socket
+  do gunicorn) NÃO é renderizado → 499 no-store: tile cancelado (pan, camada
+  trocada) enchia a fila de render inútil na frente dos tiles que importam.
 - `render.py` — leitura de COG (rio-tiler//vsicurl) + declividade + paleta.
 - `ee_source.py` — fonte `dem=ee`: a MESMA composição como expressão Earth
   Engine (getMapId + proxy dos PNGs; a referência canônica rodando de verdade).
@@ -63,9 +68,54 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   próprio render.py. **Bump do `VERSION` do sw.js em QUALQUER mudança de
   arquivo servido** (convenção do workspace) — além do par
   RENDER/TILE_VERSION quando pixels mudarem.
+- **Relevo colorido NO NAVEGADOR** (fontes fabdem/sp; `ee` segue PNG pronto):
+  `/field/` entrega os CAMPOS (`render_fields` = tudo que era caro no
+  `render_tile`, que agora é `render_fields` + `shade`) num PNG RGB OPACO
+  256×512 — elevação Terrarium (1/16 m) em cima; declividade em LOG (2%,
+  piso 1e-6) + máscara embaixo. Opaco de propósito: canvas pré-multiplica
+  alfa. O `FieldLayer` (index.html) decodifica e pinta = `shade()` em JS
+  (LUT de γ por código); mudar faixa/declive/γ/ciclos (e o auto a cada pan) só
+  repinta — zero pedido. Paridade medida vs o PNG do servidor: ≤3 níveis.
+  O encoding é CONTRATO: `FIELD_*` do render.py ↔ `FIELD_*` do index.html,
+  bump de `FIELD_VERSION` nos dois. O PNG /{z}/{x}/{y}.png continua (amora,
+  "Copiar URL telhas", camada do 3D).
+- **Carregamento no cliente** (cada item já foi bug):
+  - `LeanTileLayer`: depois de cada `_update` cancela tile AINDA CARREGANDO fora
+    da vista — o `keepBuffer` do Leaflet poupa também o que nem chegou, e
+    arrastar o mapa enfileirava dezenas de tiles renderizados à toa.
+  - Tile de canvas precisa de `complete` (como `<img>`): o `_abortLoading` do
+    Leaflet no zoom remove todo tile de outro zoom com `!complete` — sem isso o
+    zoom jogava fora os tiles prontos e não reaproveitava pai/filhos.
+  - Prévia (`ensurePreview`): até 2 zooms abaixo do zoom que o relevo PEDE
+    (retina pede +1), nunca abaixo de `PREVIEW_MIN_Z` (FABDEM z7 — o teto do
+    mosaico deixa z ≤ 6 vazio); recriada quando o deslocamento muda. PORTEIRA
+    (`afterPreview`): os tiles cheios esperam a prévia do lote (ou 2,5 s).
+- **Troca de fonte cancela a anterior** (`freezeRelief`): camada que sai de
+  cena para de pedir tiles e aborta os pendentes; crossfade superado sai na
+  hora. Antes cada troca de DEM enfileirava mais uma vista inteira
+  (144 → 288 → 432). Relevo/⧉ com `updateWhenIdle: true` (sem tile varrido no
+  arrasto).
+- **Modo 3D** (botão 3D): MapLibre GL 5.24 **vendorado** em
+  `web/vendor/maplibre-gl/` e carregado SÓ quando liga. O Leaflet segue como
+  mapa mestre (hash, /stats, busca, 📍) e no 3D fica SEM camadas de tile
+  (`in3d` no `syncEeLayers` — senão o servidor renderiza tudo duas vezes);
+  acompanha a câmera do MapLibre no moveend. z3d = z2d − 1 (mundo de 512 vs
+  256 px); bearing3d = −bearing2d (leaflet-rotate gira horário). Terreno =
+  `/terrain/` em **Terrarium** do DEM selecionado (`ee` → FABDEM; `sp`
+  completa fora da cobertura com FABDEM, senão a borda vira penhasco). Tile de
+  terreno **NUNCA transparente**: o MapLibre lê (0,0,0) como −32768 m. Nada
+  lido (oceano OU falha de R2 — indistinguíveis) → plano a 0 m com max-age=60
+  e sem cache. `TERRAIN_VERSION` (render.py) e `TERRAIN_VERSION` do
+  index.html andam JUNTOS; `TERRAIN_MAXZOOM` idem. Controles: exagero
+  vertical e campo de visão (`setVerticalFieldOfView`), ambos no hash; pad
+  de câmera (segurar = rAF com taxa/s: mover relativo ao bearing, girar,
+  inclinar, altitude = zoom). Estilo com `transition: {duration: 0}` + 
+  `freeRtt()` após mudar paint: com terreno as camadas viram textura cacheada
+  (RTT) capturada no 1º quadro da transição — a opacidade ficava um passo
+  atrasada.
 - Deploy: Cloud Run, projeto `pedal-hidrografico`, serviço `cameratopo`
   (`gcloud run deploy cameratopo --source . --region southamerica-east1
-  --allow-unauthenticated --min-instances 0 --max-instances 4 --concurrency 40
+  --allow-unauthenticated --cpu 2 --memory 1Gi --min-instances 0 --max-instances 10 --concurrency 40
   --service-account cameratopo-ee@pedal-hidrografico.iam.gserviceaccount.com`
   — a SA é o que dá ADC com acesso ao EE pra fonte `dem=ee`).
   Sem auth por design (igual ao resto do ecossistema).
@@ -88,6 +138,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   - A ampliação amostra DENTRO do array bufferizado por coordenada
     (`_bilinear_from_buffered`) — recortar o buffer antes de ampliar grampeia a
     borda e cada tile amplia isolado → degrau em toda emenda de 256 px.
+- **A reamostragem tem que chegar ao WARP**: os dois DEMs são EPSG:4326, e o
+  rio-tiler lê por um WarpedVRT já na resolução de saída — quem reamostra é o
+  `reproject_method` (default `nearest`!), não o `resampling_method`. Passar
+  só este último fazia o nearest pular 1 coluna a cada ~4 px e 1 linha a cada
+  ~7 (633→512 em z11) → GRADE fina na declividade de todo tile. `read_dem_tile`
+  passa o mesmo método aos dois.
 - **`read_size` é POTÊNCIA DE 2** (`_pow2_floor`), nunca `round(native_px)`:
   `native_px` depende da latitude e o arredondamento oscilava entre linhas de
   tiles vizinhas (37/38 em z15) → grades de leitura diferentes → a declividade
@@ -119,7 +175,20 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `import rasterio` quebra, o worker do gunicorn nunca sobe e o Cloud Run
   responde 503 em tudo — com o serviço parecendo `Ready` (o master do gunicorn
   passa no probe TCP). Foi a causa do serviço nunca ter servido um tile.
+- **Capacidade: `--max-instances 10`.** Com 4 × concurrency 40 = 160 pedidos
+  em voo, uma única vista retina em z7 (~144 tiles lentos de mosaico) batia o
+  teto e o Cloud Run respondia **429** (10–21% dos tiles nos logs). Sem
+  instância mínima (custo): a UI avisa o cold start (`checkServerAwake`).
+- **Memória: 1 GiB.** Com 512 MiB o serviço estourou (OOM, instância morta no
+  meio dos renders → tile de 90 s + cold start) assim que o PNG parou de
+  segurar o GIL (mais renders simultâneos) e o cache LRU guardava campos de
+  ~170 KB. O cache agora tem teto em BYTES (`CAMERATOPO_CACHE_MB`, 64) e o
+  `GDAL_CACHEMAX` é explícito no Dockerfile.
 - **`gunicorn --workers 1`** (threads p/ concorrência) — convenção da casa.
+  Com o PNG em `compress_level=1` (o `optimize=True` custava ~65 ms/tile e
+  segurava o GIL) 1 worker escala bem até 4 vCPU (medido: 24 tiles z10 em
+  1/2/4 núcleos ≈ 5,5/3,5/2,6 s; 4 workers ≈ 2,3 s) — depois disso o piso é a
+  leitura do R2.
 - **O Worker da Cloudflare reescreve `/` → `/index.html`** (mesma convenção do
   amora) e o proxy TEM que apontar pro host `*.run.app` (Cloud Run dá 404 com
   Host customizado). Por isso `index()` está registrado nos DOIS paths.

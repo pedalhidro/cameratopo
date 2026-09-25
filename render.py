@@ -56,7 +56,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "6"
+RENDER_VERSION = "7"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -159,11 +159,17 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
     `resampling` (default RESAMPLING=bilinear): quem chama passa `average` quando
     a leitura DECIMA a fonte — bilinear pula pixels e serrilha."""
     resampling = resampling or RESAMPLING
+    # Os DOIS DEMs são EPSG:4326 → o rio-tiler lê por um WarpedVRT (→ Web
+    # Mercator) JÁ na resolução de saída: quem reamostra de verdade é o WARP
+    # (`reproject_method`, default `nearest`!), não o `resampling_method` (esse
+    # só age no read final, que aí já é 1:1). Com nearest, decimar 633→512 px
+    # pula uma coluna a cada ~4 px e uma linha a cada ~7 → a declividade
+    # (derivada) vira GRADE fina em todo tile. Os dois recebem o mesmo método.
+    rkw = dict(resampling_method=resampling, reproject_method=resampling)
     try:
         if dem == "sp":
             with Reader(SAMPA_DEM_URL, options=SAMPA_READER_OPTS) as r:
-                img = r.tile(x, y, z, tilesize=tilesize, buffer=buffer,
-                             resampling_method=resampling)
+                img = r.tile(x, y, z, tilesize=tilesize, buffer=buffer, **rkw)
         else:
             b = TMS.bounds(morecantile.Tile(x, y, z))
             # Guarda: mosaico 1°×1° não serve zoom muito afastado (abriria COGs
@@ -176,7 +182,7 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
                 return None
             img, _ = mosaic_reader(
                 assets, _asset_tile, x, y, z,
-                tilesize=tilesize, buffer=buffer, resampling_method=resampling,
+                tilesize=tilesize, buffer=buffer, **rkw,
                 allowed_exceptions=(TileOutsideBounds,),
             )
     except (TileOutsideBounds, EmptyMosaicError):
@@ -284,6 +290,20 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
     `max_read` (query `ss`) sobrepõe MAX_READ_SIZE: é o teto da superamostragem
     no zoom afastado — mais px lidos = declividade mais perto do nativo (mais
     textura, menos serrilhado) e mais CPU/rede por tile."""
+    f = render_fields(dem, x, y, z, tilesize=tilesize, max_read=max_read)
+    if f is None:
+        return None
+    height, mask, slope = f
+    rgba = shade(height, mask, slope, elev_min, elev_max, slope_max, gamma, cycles)
+    return _png_bytes(rgba)
+
+
+def render_fields(dem, x, y, z, *, tilesize=256, max_read=None):
+    """Os CAMPOS escalares do tile, já no tamanho do tile e ANTES da paleta:
+    (elevação m, máscara bool, declividade m/m), ou None sem cobertura. Toda a
+    parte cara (leitura nativa, declividade, reamostragem sem costura) mora
+    aqui; `shade` é só cor — e é o que o navegador refaz sozinho a partir do
+    /field/ (field_tile), sem voltar ao servidor quando os params mudam."""
     b = TMS.bounds(morecantile.Tile(x, y, z))
     lat_c = (b.bottom + b.top) / 2.0
     res256 = _mercator_res_m(z, lat_c)   # m/px de solo se lêssemos tilesize px
@@ -358,8 +378,7 @@ def render_tile(dem, x, y, z, *, elev_min, elev_max, slope_max, gamma, cycles,
             slope = _resize_scalar(slope, tilesize, 0.0)
             mask = _resize_mask(mask, tilesize)
 
-    rgba = shade(height, mask, slope, elev_min, elev_max, slope_max, gamma, cycles)
-    return _png_bytes(rgba)
+    return height, mask, slope
 
 
 def _pow2_floor(v):
@@ -419,7 +438,127 @@ def _resize_mask(mask, size):
 def _png_bytes(rgba):
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    # compress_level=1, não optimize=True: relevo é imagem "natural", o zlib
+    # pesado quase não ganha (medido: 112 KiB em ambos) e custava ~65 ms de CPU
+    # por tile contra ~9 ms — num Cloud Run de poucas vCPU isso é throughput.
+    img.save(buf, format="PNG", compress_level=1)
+    return buf.getvalue()
+
+
+# ── Campos pro navegador colorir (/field/) ───────────────────────────────────
+# PNG RGB OPACO 256×512 (sem alfa: canvas pré-multiplica alfa e perderia bits):
+#   linhas 0–255   elevação Terrarium, passo FIELD_ELEV_STEP_M:
+#                  h = R·256 + G + B/256 − 32768
+#   linhas 256–511 declividade em LOG (R·256+G = k; k=0 → s=0, senão
+#                  s = FIELD_SLOPE_S0 · (1+FIELD_SLOPE_REL)^(k−1)) e B = máscara
+#                  (255 coberto, 0 sem dado).
+# Log = erro RELATIVO constante (2%): o slopeMax vai de 1% a 120% e o que importa
+# na cor é s/slopeMax. Linear 16 bits dobrava o PNG; 8 bits bandava em terreno
+# plano. Medido contra o shade() do servidor: ≤2 níveis (de 255) em settings
+# normais; ~7 no p99.9 com faixa de 20 m em 8 ciclos. Piso S0 baixo porque γ
+# alto (s_norm^(1/γ)) amplifica a declividade quase-nula. Estes números são
+# CONTRATO com o decodificador do index.html (FIELD_* lá) — mudar = bumpar
+# FIELD_VERSION nos dois.
+FIELD_VERSION = "1"
+FIELD_ELEV_STEP_M = 1.0 / 16.0
+FIELD_SLOPE_S0 = 1e-6
+FIELD_SLOPE_REL = 0.02
+
+
+def field_tile(dem, x, y, z, tilesize=256, max_read=None):
+    """PNG dos campos (ver acima) — independe de TODOS os params de cor."""
+    f = render_fields(dem, x, y, z, tilesize=tilesize, max_read=max_read)
+    if f is None:
+        h = np.zeros((tilesize, tilesize)); s = np.zeros_like(h)
+        m = np.zeros((tilesize, tilesize), dtype=bool)
+    else:
+        h, m, s = f
+    h = np.where(np.isfinite(h), h, 0.0)
+    v = np.round((np.clip(h, -11000.0, 9000.0) + 32768.0) / FIELD_ELEV_STEP_M) * FIELD_ELEV_STEP_M
+    vi = np.floor(v)
+    top = np.empty((tilesize, tilesize, 3), dtype=np.uint8)
+    top[..., 0] = (vi // 256).astype(np.uint8)
+    top[..., 1] = (vi % 256).astype(np.uint8)
+    top[..., 2] = np.floor((v - vi) * 256.0).astype(np.uint8)
+    s = np.where(np.isfinite(s), s, 0.0)
+    k = np.where(s > FIELD_SLOPE_S0,
+                 np.round(np.log(np.maximum(s, FIELD_SLOPE_S0) / FIELD_SLOPE_S0)
+                          / math.log1p(FIELD_SLOPE_REL)) + 1, 0)
+    k = np.clip(k, 0, 65535).astype(np.int64)
+    bot = np.empty((tilesize, tilesize, 3), dtype=np.uint8)
+    bot[..., 0] = (k >> 8).astype(np.uint8)
+    bot[..., 1] = (k & 255).astype(np.uint8)
+    bot[..., 2] = np.where(m, 255, 0).astype(np.uint8)
+    buf = io.BytesIO()
+    # nível 6 (não 1): o campo é cacheado longo e compartilhado — bytes pesam
+    # mais que os ~60 ms de CPU, pagos uma vez por tile.
+    Image.fromarray(np.concatenate([top, bot], 0), "RGB").save(buf, format="PNG", compress_level=6)
+    return buf.getvalue()
+
+
+# ── Terreno 3D: elevação crua em Terrarium (raster-dem do MapLibre) ──────────
+# Versão do ENCODING/leitura do terreno — chave de cache/ETag E o `v=` que a UI
+# manda (TERRAIN_VERSION do index.html). Bumpe os DOIS juntos, como o par
+# RENDER/TILE_VERSION (os tiles têm max-age de 7 dias).
+TERRAIN_VERSION = "1"
+# Zoom máximo NATIVO do terreno por fonte (acima o MapLibre sobreamplia): ~1 px
+# de tile por célula nativa. FABDEM 30 m → z12 (~35 m/px em SP); DEM-SP 5 m → z15.
+TERRAIN_MAXZOOM = {"fabdem": 12, "sp": 15}
+# Quantização da elevação (m). O MapLibre não precisa de sub-decímetro pra
+# malha; os bits baixos ruidosos só incham o PNG.
+TERRAIN_STEP_M = 0.125
+
+
+def terrain_tile(dem, x, y, z, tilesize=256):
+    """PNG Terrarium (RGB: h = R·256 + G + B/256 − 32768) da elevação do DEM.
+
+    NUNCA transparente: o MapLibre decodifica pixel (0,0,0) como −32768 m — um
+    poço até o fundo do mundo. Sem dado vira 0 m (oceano no FABDEM). O DEM-SP
+    só cobre a RMSP: fora dele (e nos buracos) completa com o FABDEM, senão a
+    borda da cobertura viraria um penhasco até o nível do mar.
+
+    Devolve None se NADA foi lido: oceano e falha de rede/R2 são indistinguíveis
+    aqui (read_dem_tile engole os dois) e um tile de 0 m cacheado por 7 dias
+    viraria um poço — quem chama serve terrain_flat_png() com cache curto."""
+    b = TMS.bounds(morecantile.Tile(x, y, z))
+    res = _mercator_res_m(z, (b.bottom + b.top) / 2.0)   # m/px do tile
+    def read(src):
+        native = SP_NATIVE_M if src == "sp" else FABDEM_NATIVE_M
+        # decimando de verdade → média de ÁREA (bilinear pularia pixels)
+        rs = "average" if res > native * 1.05 else RESAMPLING
+        return read_dem_tile(src, x, y, z, buffer=0, tilesize=tilesize, resampling=rs)
+
+    h = np.zeros((tilesize, tilesize), dtype=np.float64)
+    have = np.zeros((tilesize, tilesize), dtype=bool)
+    for src in (("sp", "fabdem") if dem == "sp" else ("fabdem",)):
+        r = read(src)
+        if r is not None:
+            hh, mm = r
+            fill = mm & ~have
+            h[fill] = hh[fill]
+            have |= fill
+        if have.all():
+            break
+    if not have.any():
+        return None
+    return _terrarium_png(h)
+
+
+def terrain_flat_png(tilesize=256):
+    """Terreno plano a 0 m (sem dado / falha) — Terrarium, nunca transparente."""
+    return _terrarium_png(np.zeros((tilesize, tilesize), dtype=np.float64))
+
+
+def _terrarium_png(h):
+    tilesize = h.shape[0]
+    v = np.round((np.clip(h, -11000.0, 9000.0) + 32768.0) / TERRAIN_STEP_M) * TERRAIN_STEP_M
+    vi = np.floor(v)
+    rgb = np.empty((tilesize, tilesize, 3), dtype=np.uint8)
+    rgb[..., 0] = (vi // 256).astype(np.uint8)
+    rgb[..., 1] = (vi % 256).astype(np.uint8)
+    rgb[..., 2] = np.floor((v - vi) * 256.0).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(rgb, "RGB").save(buf, format="PNG", compress_level=6)
     return buf.getvalue()
 
 
@@ -592,7 +731,12 @@ def auto_stats(dem):
 
 _png_cache: "OrderedDict[str, bytes]" = OrderedDict()
 _png_cache_lock = threading.Lock()
-PNG_CACHE_MAX = 512
+# Teto em BYTES, não em nº de entradas: os corpos variam 1 KB (transparente) a
+# ~170 KB (campo 256×512), e o teto de 512 ENTRADAS chegou a ~80 MB e, somado
+# aos renders simultâneos, estourou os 512 MiB do Cloud Run (OOM → instância
+# morta no meio dos renders → tiles de 90 s + cold start).
+PNG_CACHE_MAX_BYTES = int(os.environ.get("CAMERATOPO_CACHE_MB") or 64) * 1024 * 1024
+_png_cache_bytes = 0
 
 
 def cache_get(key):
@@ -604,10 +748,16 @@ def cache_get(key):
 
 
 def cache_put(key, value):
+    global _png_cache_bytes
     with _png_cache_lock:
+        old = _png_cache.pop(key, None)
+        if old is not None:
+            _png_cache_bytes -= len(old)
         _png_cache[key] = value
-        while len(_png_cache) > PNG_CACHE_MAX:
-            _png_cache.popitem(last=False)
+        _png_cache_bytes += len(value)
+        while _png_cache_bytes > PNG_CACHE_MAX_BYTES and len(_png_cache) > 1:
+            _, v = _png_cache.popitem(last=False)
+            _png_cache_bytes -= len(v)
 
 
 # ── Smoke test offline (sem rede): valida a matemática de shade/slope ────────

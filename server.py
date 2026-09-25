@@ -30,6 +30,7 @@ CDN/Cloudflare na frente com a query na chave de cache.
 import hashlib
 import math
 import os
+import socket
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
@@ -136,6 +137,32 @@ def _resolve_params(dem):
     return dict(elev_min=elev_min, elev_max=elev_max, slope_max=slope_max,
                 gamma=gamma, cycles=cycles, max_read=max_read,
                 ptl_sd=ptl_sd, ptl_kernel=ptl_kernel)
+
+
+def _client_gone():
+    """O cliente já desistiu deste pedido? (best-effort, só sob gunicorn)
+
+    O navegador cancela tile que saiu da tela / de camada trocada, mas o pedido
+    já pode estar na FILA do gunicorn (8 threads, concurrency 40): sem isto o
+    servidor renderizava depois tile que ninguém mais ia ver — e a fila de
+    lixo atrasava os tiles que importam. Espia o socket sem consumir: EOF =
+    a outra ponta fechou. Pipelining/keep-alive podem mostrar bytes do PRÓXIMO
+    pedido → "vivo" (erra pro lado seguro, só renderiza)."""
+    sock = request.environ.get("gunicorn.socket")
+    if sock is None:
+        return False
+    try:
+        return sock.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+    except BlockingIOError:
+        return False            # nada a ler = conexão aberta, esperando a resposta
+    except OSError:
+        return True
+
+
+# Resposta pra quem já foi embora: ninguém lê, mas o gunicorn precisa de uma.
+# no-store — jamais pode virar cache de tile vazio.
+def _gone_response():
+    return Response(status=499, headers={"Cache-Control": "no-store"})
 
 
 def _png_response(body, etag, max_age=None):
@@ -265,6 +292,8 @@ def tile(z, x, y):
 
     body = render.cache_get(key)
     if body is None:
+        if _client_gone():
+            return _gone_response()
         try:
             if dem == "ee":
                 body = ee_source.fetch_tile(z, x, y, p)
@@ -304,6 +333,8 @@ def ee_layer_tile(layer, z, x, y):
 
     body = render.cache_get(key)
     if body is None:
+        if _client_gone():
+            return _gone_response()
         try:
             body = ee_source.fetch_layer_tile(layer, z, x, y, p)
             render.cache_put(key, body)
@@ -314,6 +345,71 @@ def ee_layer_tile(layer, z, x, y):
             # timeout enquanto o EE computa — cachear o transparente congelaria
             # o buraco mesmo depois do EE aquecer. max-age curto → retry.
             return _png_response(render.transparent_png(), etag, max_age=60)
+
+    return _png_response(body, etag)
+
+
+@app.get("/field/<int:z>/<int:x>/<int:y>.png")
+def field_tile(z, x, y):
+    """Campos (elevação + declividade + máscara) do tile, pro NAVEGADOR colorir
+    (render.field_tile). Independe de elevMin/Max, slopeMax, γ e ciclos → mudar
+    params não refaz nada no servidor, e o mesmo tile serve todo mundo (cache
+    longo + CDN). `ee` não tem campos (o EE entrega RGB pronto) → fabdem."""
+    dem = "sp" if _dem_arg() == "sp" else "fabdem"
+    ss = _fnum("ss")
+    max_read = int(ss) if ss else render.MAX_READ_SIZE
+    max_read = max(render.MIN_READ_SIZE, min(render.SS_HARD_MAX, max_read))
+    key = (f"fld{render.FIELD_VERSION}.rv{render.RENDER_VERSION}/{dem}/{z}/{x}/{y}"
+           f"?ss={max_read}")
+    etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
+
+    max_tile = 2 ** z - 1
+    if not (MIN_ZOOM <= z <= MAX_ZOOM and 0 <= x <= max_tile and 0 <= y <= max_tile):
+        return Response(status=404)
+
+    body = render.cache_get(key)
+    if body is None:
+        if _client_gone():
+            return _gone_response()
+        try:
+            body = render.field_tile(dem, x, y, z, max_read=max_read)
+        except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
+            app.logger.warning("campo %s falhou: %s", key, exc)
+            return Response(status=503, headers={"Cache-Control": "no-store",
+                                                 "Access-Control-Allow-Origin": "*"})
+        render.cache_put(key, body)
+
+    return _png_response(body, etag)
+
+
+@app.get("/terrain/<int:z>/<int:x>/<int:y>.png")
+def terrain_tile(z, x, y):
+    """Terreno do modo 3D: elevação crua em Terrarium (raster-dem do MapLibre)
+    do DEM selecionado — `sp` completa fora da cobertura com FABDEM, `ee` usa o
+    FABDEM local (mesmos dados). Independe dos params de cor → cache longo e
+    compartilhado. Falha → 0 m SEM cache (max-age=60), nunca transparente
+    (transparente = −32768 m no MapLibre)."""
+    dem = "sp" if _dem_arg() == "sp" else "fabdem"
+    key = f"terr{render.TERRAIN_VERSION}/{dem}/{z}/{x}/{y}"
+    etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
+
+    max_tile = 2 ** z - 1
+    if not (MIN_ZOOM <= z <= min(MAX_ZOOM, render.TERRAIN_MAXZOOM[dem])
+            and 0 <= x <= max_tile and 0 <= y <= max_tile):
+        return Response(status=404)
+
+    body = render.cache_get(key)
+    if body is None:
+        if _client_gone():
+            return _gone_response()
+        try:
+            body = render.terrain_tile(dem, x, y, z)
+            if body is None:   # oceano OU falha (indistinguíveis) → sem cache
+                return _png_response(render.terrain_flat_png(), etag, max_age=60)
+            render.cache_put(key, body)
+        except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
+            app.logger.warning("terreno %s falhou: %s", key, exc)
+            return _png_response(render.terrain_flat_png(), etag, max_age=60)
 
     return _png_response(body, etag)
 

@@ -359,6 +359,65 @@
   }
   .toast.show { opacity: 1; }
 
+  /* Progresso dos tiles do servidor (relevo + camadas ⧉): barra fina no topo +
+     rótulo. Tile frio leva 0,5–2 s e uma vista pede dezenas — sem feedback
+     parece travado. `indet` = esperando o /stats (auto), antes dos tiles. */
+  #load-progress {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1150; height: 3px;
+    pointer-events: none; opacity: 0; transition: opacity .35s;
+  }
+  #load-progress.show { opacity: 1; }
+  /* tiles de canvas (relevo colorido no navegador): o mesmo remendo de costura
+     que o leaflet.css aplica aos <img> (chromium #600120) */
+  .leaflet-container canvas.leaflet-tile { mix-blend-mode: plus-lighter; }
+
+  /* Modo 3D: o MapLibre cobre os PANES do Leaflet (z 200–400) mas fica abaixo
+     dos controles (z 1000) — botões, painéis e barra seguem utilizáveis. O que
+     só faz sentido no 2D (zoom/bússola/escala do Leaflet, desenho) some. */
+  #map3d { position: absolute; inset: 0; z-index: 500; background: #0b0d10; }
+  #map3d[hidden] { display: none; }
+  #btn-3d { font-size: 14px; letter-spacing: -0.02em; }
+  body.mode3d .leaflet-control-zoom, body.mode3d .leaflet-control-rotate,
+  body.mode3d .leaflet-control-scale, body.mode3d #btn-pencil,
+  body.mode3d #draw-tools, body.mode3d #color-flyout, body.mode3d #measure { display: none; }
+  #ctl3d {
+    position: absolute; right: 56px; bottom: 12px; z-index: 1001; width: 190px;
+    padding: 8px 12px; border-radius: 12px;
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
+  }
+  body:not(.mode3d) #ctl3d { display: none; }
+  #ctl3d label { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 600; color: var(--panel-muted); }
+  #ctl3d input { width: 100%; accent-color: var(--accent); margin: 2px 0 6px; }
+  #ctl3d input:last-child { margin-bottom: 0; }
+  /* Pad da câmera 3D: segure pra repetir (rAF), como um controle de voo */
+  .pad3d { display: grid; grid-template-columns: repeat(3, 1fr) 6px repeat(2, 1fr); gap: 4px; }
+  .pad3d button:nth-child(4), .pad3d button:nth-child(9) { grid-column: 5; }
+  .pad3d button {
+    height: 30px; padding: 0; cursor: pointer; border-radius: 8px;
+    border: 1px solid var(--field-line); background: var(--field-bg); color: var(--panel-fg);
+    font: 600 14px/1 inherit; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .pad3d button.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .pad3d-cap { display: grid; grid-template-columns: 3fr 6px 1fr 1fr; font-size: 9.5px; color: var(--panel-muted); text-align: center; margin: 2px 0 6px; }
+  .pad3d-cap span:first-child { grid-column: 1; } .pad3d-cap span:nth-child(2) { grid-column: 3; }
+  body.immersive #ctl3d, body.immersive .maplibregl-ctrl { visibility: hidden; }
+  #load-progress .bar {
+    height: 100%; width: 0; background: var(--accent);
+    box-shadow: 0 0 6px var(--accent); transition: width .25s ease-out;
+  }
+  #load-progress.indet .bar { width: 30%; animation: lp-indet 1.1s ease-in-out infinite; }
+  @keyframes lp-indet { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  #load-progress .lbl {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,24,30,0.82); color: #fff; font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #load-progress .bar { transition: none; }
+    #load-progress.indet .bar { animation: none; width: 100%; opacity: .5; }
+  }
+
   /* Celular: painéis e modal viram BOTTOM-SHEET (colados embaixo, cantos de
      cima arredondados) e a alça de redimensionar vai pro TOPO da folha (o JS
      move o nó .grip pro começo e inverte a conta do arrasto). */
@@ -376,6 +435,29 @@
 </head>
 <body>
 <div id="map"></div>
+<div id="map3d" hidden></div>
+<div id="ctl3d">
+  <div class="pad3d" role="group" aria-label="Câmera 3D">
+    <button type="button" data-cam="rotL" title="Girar à esquerda" aria-label="Girar à esquerda">↺</button>
+    <button type="button" data-cam="fwd" title="Avançar" aria-label="Avançar">▲</button>
+    <button type="button" data-cam="rotR" title="Girar à direita" aria-label="Girar à direita">↻</button>
+    <button type="button" data-cam="tiltUp" title="Inclinar pro horizonte" aria-label="Inclinar pro horizonte">⤴</button>
+    <button type="button" data-cam="up" title="Subir (altitude)" aria-label="Subir">⇧</button>
+    <button type="button" data-cam="left" title="Deslizar à esquerda" aria-label="Deslizar à esquerda">◀</button>
+    <button type="button" data-cam="back" title="Recuar" aria-label="Recuar">▼</button>
+    <button type="button" data-cam="right" title="Deslizar à direita" aria-label="Deslizar à direita">▶</button>
+    <button type="button" data-cam="tiltDown" title="Olhar mais de cima" aria-label="Olhar mais de cima">⤵</button>
+    <button type="button" data-cam="down" title="Descer (altitude)" aria-label="Descer">⇩</button>
+  </div>
+  <div class="pad3d-cap"><span>mover · girar</span><span>incl.</span><span>alt.</span></div>
+  <label for="ex3d">Exagero vertical <span id="ex3d-val">×1.5</span></label>
+  <input type="range" id="ex3d" min="1" max="5" step="0.1" value="1.5" aria-label="Exagero vertical do 3D">
+  <label for="fov3d">Campo de visão <span id="fov3d-val">37°</span></label>
+  <input type="range" id="fov3d" min="5" max="80" step="1" value="37" aria-label="Campo de visão do 3D">
+</div>
+<div id="load-progress" role="progressbar" aria-label="Carregando tiles" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <div class="bar"></div><span class="lbl"></span>
+</div>
 
 <button id="panel-toggle" class="map-btn" aria-label="Abrir/fechar controles" title="Menu">☰</button>
 <button id="layers-toggle" class="map-btn" aria-label="Abrir/fechar camadas" aria-pressed="false" title="Camadas">⧉</button>
@@ -487,12 +569,20 @@
         faixa automática). São renderizadas pelo Earth Engine — a primeira carga de
         uma camada pesada pode demorar alguns segundos.</p>
 
-      <h3>Botões do mapa (📍 · A · ✏ · 👁)</h3>
+      <h3>Botões do mapa (📍 · A · 3D · ✏ · 👁)</h3>
       <p>No canto superior esquerdo, abaixo do zoom. <b>📍</b> liga/desliga o
         rastreamento da sua posição ao vivo (o navegador pede permissão): centra
         no primeiro sinal e o ponto passa a acompanhar você; toque de novo pra
         parar. <b>A</b> liga/desliga a <i>Faixa automática</i> (a faixa de
-        elevação/declive segue a tela). <b>👁</b> é o modo imersivo: esconde
+        elevação/declive segue a tela). <b>3D</b> liga/desliga o modo 3D: o
+        relevo (e as camadas ligadas no ⧉) vira um terreno de verdade, com a
+        elevação do DEM escolhido. Arraste com o <b>botão direito</b> (ou
+        Ctrl + arrastar; no celular, dois dedos pra cima/baixo) pra inclinar e
+        girar; o painel no canto inferior direito tem um <b>pad de câmera</b>
+        (segure: ▲▼◀▶ avança/recua/desliza na direção em que você olha, ↺↻
+        gira, ⤴⤵ inclina, ⇧⇩ sobe/desce) e ajusta o <b>exagero
+        vertical</b> e o <b>campo de visão</b> (estreito achata a perspectiva,
+        como uma teleobjetiva; largo exagera a profundidade). Os desenhos ficam só no 2D. <b>👁</b> é o modo imersivo: esconde
         todos os controles (só o olho fica, mesclado ao mapa); toque de novo
         pra voltar. Botões ficam <b>realçados</b> quando ativos.</p>
 
@@ -586,12 +676,14 @@ const CMO_PHASE = [
 
 const DEFAULTS = {
   center: [-23.676719997531016, -46.40866076216205], zoom: 10,   // Serra do Mar / RMSP
-  dem: "ee", auto: false,
+  dem: "fabdem", auto: false,
   emin: 700, emax: 1200, slope: 16,
-  gamma: 1.0, cycles: 1, opacity: 90,   // gama em escala log2, 1.0 no meio
+  gamma: 1.0, cycles: 1, opacity: 100,  // gama em escala log2, 1.0 no meio
   rot: 0,   // rotação do mapa (graus)
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
   ptlSd: 2.0, ptlKernel: 1000,   // PTL: ±desvios que saturam · diâmetro (m)
+  d3: false, pitch: 60, ex: 1.5,  // modo 3D: ligado · inclinação (°) · exagero vertical
+  fov: 37,                        // campo de visão vertical do 3D (°; ~36,87 é o default do MapLibre)
 };
 
 // Versão do renderizador (= render.RENDER_VERSION do servidor). Vai na
@@ -599,7 +691,7 @@ const DEFAULTS = {
 // então SEM URL nova o navegador/CDN seguem servindo PNGs antigos depois de uma
 // mudança na matemática do render (nem reiniciar o servidor resolve — dentro do
 // max-age o navegador nem revalida o ETag). Bumpe junto com o RENDER_VERSION.
-const TILE_VERSION = "6";
+const TILE_VERSION = "7";
 
 // Superamostragem: px lidos por lado no zoom afastado (query `ss` do tile). Mais
 // = declividade computada mais perto da resolução nativa do DEM (mais textura,
@@ -690,6 +782,10 @@ function readHash() {
   if (SS_CHOICES.includes(ss)) P.ss = ss;
   P.ptlSd = Math.min(10, Math.max(0.1, num("psd", P.ptlSd)));
   P.ptlKernel = Math.min(3000, Math.max(30, num("pk", P.ptlKernel)));
+  P.d3 = h.get("3d") === "1";
+  P.pitch = Math.min(85, Math.max(0, num("pitch", P.pitch)));
+  P.ex = Math.min(5, Math.max(1, num("ex", P.ex)));
+  P.fov = Math.min(80, Math.max(5, num("fov", P.fov)));
 
   // ly= camadas VISÍVEIS, fundo→topo, `id:opacidade%` (relevo sem %, usa op=).
   // Ausente → só o relevo, pilha padrão. As ocultas ficam embaixo na ordem
@@ -720,6 +816,9 @@ readHash();
 let autoResolved = false;   // auto já tem estimativa? (senão → `auto` do servidor)
 let autoTimer = null, lastAutoKey = "";
 let autoReqToken = 0;       // sequência p/ descartar respostas /stats fora de ordem
+// Modo 3D ativo? Cedo pelo MESMO motivo (TDZ): syncEeLayers/refreshTiles o leem
+// no boot. Nasce do hash → abrir um link 3D não pede os tiles 2D à toa.
+let in3d = P.d3;
 
 let hashTimer = null;
 // Escreve o hash AGORA (síncrono). Quem precisa do location.href atualizado na
@@ -736,6 +835,7 @@ function commitHash() {
   q.set("ss", P.ss);
   q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
+  if (P.d3) { q.set("3d", "1"); q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); }
   // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
   const seq = P.stack.filter((id) => P.lyOn[id])
     .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
@@ -815,49 +915,419 @@ function makeBaseLayer(kind, pane) {
     L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, opts({})),
   ]);
 }
-// Relevo com CROSSFADE: mudar parâmetro/faixa não pode "piscar". Em vez de
-// setUrl (que limpa os tiles → flash), a nova URL entra numa camada nova
-// invisível; quando ELA termina de carregar, faz fade-in e esmaece a antiga.
-// keepBuffer alto + updateWhenZooming:false deixam pan/zoom mais macios.
+// ── Relevo colorido NO NAVEGADOR (fontes fabdem/sp) ─────────────────────────
+// O servidor entrega os CAMPOS do tile (/field/: elevação + declividade +
+// máscara, independentes de TODO param de cor — ver render.field_tile) e o
+// navegador aplica a paleta. Mudar faixa/declive/γ/ciclos (inclusive o auto a
+// cada pan) só REPINTA os canvas: zero pedido ao servidor, instantâneo, e o
+// mesmo tile serve qualquer usuário (cache/CDN). A fonte `ee` continua PNG
+// pronto do servidor (o EE devolve RGB). O PNG /{z}/{x}/{y}.png segue existindo
+// (amora, "Copiar URL telhas", 3D). Decodificação = CONTRATO com o render.py:
+const FIELD_VERSION = "1";                         // = render.FIELD_VERSION — bump JUNTO
+const FIELD_SLOPE_S0 = 1e-6;                       // = render.FIELD_SLOPE_S0
+const FIELD_SLOPE_LN = Math.log1p(0.02);           // = log1p(render.FIELD_SLOPE_REL)
+const clientColored = () => P.dem !== "ee";
+function fieldUrl() {
+  const q = new URLSearchParams();
+  q.set("dem", P.dem); q.set("ss", String(P.ss));
+  q.set("v", TILE_VERSION); q.set("fv", FIELD_VERSION);   // render + encoding
+  return `/field/{z}/{x}/{y}.png?${q.toString()}`;
+}
+// URL da FONTE do relevo: no colorido-no-navegador ela não muda com os params
+// de cor (só DEM/ss) — é isso que decide se basta repintar ou se precisa
+// buscar tiles novos (crossfade).
+const reliefUrl = () => (clientColored() ? fieldUrl() : tileUrl(false));
+
+// Estado da pintura, derivado de P com os MESMOS clamps do servidor
+// (_resolve_params + shade). lut[k] = fator de declividade do código k — a
+// potência γ sai do laço por pixel (65 536 entradas ≈ 2 ms por mudança).
+const PAL = new Float64Array(CMO_PHASE.flat());
+const paint = { emin: 0, span: 1, cycles: 1, lut: new Float32Array(65536) };
+function updatePaintState() {
+  const emin = P.emin, emax = P.emax > P.emin ? P.emax : P.emin + 1;
+  const gamma = Math.min(16, Math.max(0.0625, P.gamma || 1.2));
+  const inv = 1 / Math.max(0.05, gamma);
+  const smax = Math.max(1e-9, P.slope / 100);
+  paint.emin = emin; paint.span = emax - emin;
+  paint.cycles = Math.min(16, Math.max(1, Math.trunc(P.cycles) || 1));
+  const lut = paint.lut;
+  lut[0] = 1;
+  for (let k = 1; k < 65536; k++) {
+    const sn = Math.min(1, (FIELD_SLOPE_S0 * Math.exp((k - 1) * FIELD_SLOPE_LN)) / smax);
+    lut[k] = 1 - Math.pow(sn, inv);
+  }
+}
+// Decodifica o PNG 256×512 (opaco de propósito: canvas pré-multiplica alfa).
+// Guarda só o necessário pra repintar: elevação (NaN = sem dado) + código da
+// declividade — ~384 KB/tile.
+const fieldScratch = document.createElement("canvas");
+fieldScratch.width = 256; fieldScratch.height = 512;
+const fieldCtx = fieldScratch.getContext("2d", { willReadFrequently: true });
+function decodeField(bmp) {
+  fieldCtx.clearRect(0, 0, 256, 512);
+  fieldCtx.drawImage(bmp, 0, 0);
+  const d = fieldCtx.getImageData(0, 0, 256, 512).data;
+  const N = 65536, elev = new Float32Array(N), code = new Uint16Array(N);
+  for (let i = 0, j = 0, jb = N * 4; i < N; i++, j += 4, jb += 4) {
+    elev[i] = d[jb + 2] > 127 ? d[j] * 256 + d[j + 1] + d[j + 2] / 256 - 32768 : NaN;
+    code[i] = d[jb] * 256 + d[jb + 1];
+  }
+  return { elev, code };
+}
+// = render.shade(): paleta cíclica × (1 − (s/smax)^(1/γ)), truncando pra
+// uint8 como o astype do numpy.
+function paintField(canvas) {
+  const f = canvas._field;
+  if (!f) return;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(256, 256), o = img.data;
+  const { emin, span, cycles, lut } = paint;
+  for (let i = 0, j = 0; i < 65536; i++, j += 4) {
+    const h = f.elev[i];
+    if (h !== h) { o[j + 3] = 0; continue; }   // NaN = sem dado → transparente
+    let t = 0.5;
+    if (span > 0) {
+      t = (h - emin) / span;
+      t = (t < 0 ? 0 : t > 1 ? 1 : t) * cycles;
+      t -= Math.floor(t);
+    }
+    const ff = t * 16;
+    let k = Math.floor(ff); if (k > 15) k = 15;
+    const fr = ff - k, a = k * 3, fac = lut[f.code[i]];
+    o[j]     = (PAL[a]     + (PAL[a + 3] - PAL[a])     * fr) * fac | 0;
+    o[j + 1] = (PAL[a + 1] + (PAL[a + 4] - PAL[a + 1]) * fr) * fac | 0;
+    o[j + 2] = (PAL[a + 2] + (PAL[a + 5] - PAL[a + 2]) * fr) * fac | 0;
+    o[j + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+// Camada "enxuta": depois de cada _update, CANCELA tile ainda carregando que
+// saiu da vista (ou é de outro zoom). O Leaflet poupa tudo dentro do keepBuffer
+// — inclusive o que nem chegou — então arrastar o mapa enfileirava dezenas de
+// tiles fora da tela, todos renderizados no servidor. Tile PRONTO no buffer
+// fica (é o que deixa o pan de volta instantâneo).
+const LeanTileLayer = L.TileLayer.extend({
+  _update(center) {
+    L.TileLayer.prototype._update.call(this, center);
+    const m = this._map;
+    if (!m || this._tileZoom === undefined) return;
+    const range = this._pxBoundsToTileRange(this._getTiledPixelBounds(center || m.getCenter()));
+    for (const key of Object.keys(this._tiles)) {
+      const t = this._tiles[key];
+      if (t.loaded) continue;
+      const c = t.coords;
+      if (c.z !== this._tileZoom || !range.contains(L.point(c.x, c.y))) this._removeTile(key);
+    }
+  },
+});
+const fieldLayers = new Set();   // relevo colorido-no-navegador no mapa (ativo, entrando, prévia)
+const FieldLayer = LeanTileLayer.extend({
+  onAdd(m) { fieldLayers.add(this); return L.TileLayer.prototype.onAdd.call(this, m); },
+  onRemove(m) { fieldLayers.delete(this); return L.TileLayer.prototype.onRemove.call(this, m); },
+  // Canvas em vez de <img>. O TileLayer continua cuidando de URL, retina
+  // (tileSize/zoomOffset) e poda. Tile removido antes de chegar → aborta o
+  // fetch (o <img> fazia isso sozinho trocando o src).
+  createTile(coords, done) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    // `complete` como no <img>: o _abortLoading do Leaflet (no zoom) remove todo
+    // tile de outro zoom com !complete — no canvas isso é undefined, então ele
+    // jogava fora os tiles JÁ PRONTOS e o zoom não reaproveitava pai/filhos.
+    c.complete = false;
+    const ctrl = new AbortController();
+    c._abort = () => ctrl.abort();
+    const url = this.getTileUrl(coords);
+    // relevo cheio espera a prévia (porteira); a própria prévia não
+    const go = (fn) => (this.options.gated ? afterPreview(fn) : fn());
+    go(() => fetch(url, { signal: ctrl.signal })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+      .then((b) => createImageBitmap(b, { premultiplyAlpha: "none", colorSpaceConversion: "none" }))
+      .then((bmp) => {
+        c._field = decodeField(bmp);
+        if (bmp.close) bmp.close();
+        paintField(c);
+        c.complete = true;
+        done(null, c);
+      })
+      .catch((err) => { if (err.name !== "AbortError") done(err, c); }));
+    return c;
+  },
+  repaint() { for (const k in this._tiles) paintField(this._tiles[k].el); },
+});
+FieldLayer.addInitHook(function () {
+  this.on("tileunload tileabort", (e) => { if (e.tile._abort) e.tile._abort(); });
+});
+let repaintRaf = 0;
+function scheduleRepaint() {        // rAF: arrastar slider não empilha repinturas
+  if (repaintRaf) return;
+  repaintRaf = requestAnimationFrame(() => {
+    repaintRaf = 0;
+    updatePaintState();
+    for (const ly of fieldLayers) ly.repaint();
+  });
+}
+updatePaintState();
+
+// Relevo com CROSSFADE quando a FONTE muda (DEM, ss; ou qualquer param na
+// fonte `ee`): em vez de setUrl (limpa os tiles → flash), a nova URL entra
+// numa camada nova invisível; quando ELA termina de carregar, fade-in e a
+// antiga esmaece. keepBuffer + updateWhenZooming:false deixam pan/zoom macios
+// (keepBuffer menor no colorido: cada tile guarda os campos, ~384 KB).
 const RELIEF_FADE_MS = 400;
-function reliefOpts(op) {
+function reliefOpts(op, field) {
   return {
     pane: "ly-relevo",   // pilha do painel ⧉ (precedência = zIndex do pane)
     opacity: op, minZoom: 0, maxNativeZoom: RELIEF_MAX_NATIVE, maxZoom: 22,
-    keepBuffer: 4, updateWhenZooming: false,
+    keepBuffer: field ? 2 : 4, updateWhenZooming: false,
+    // Só pede tiles quando o pan PARA: arrastar/arremessar o mapa pedia cada
+    // tile varrido no caminho e o servidor renderizava tudo, à toa.
+    updateWhenIdle: true,
     // Tela HiDPI/Retina: pede tiles um zoom acima e mostra em ½ tamanho, pra o
     // relevo não sair "quadriculado" (256 px reampliados 2× pelo navegador).
     detectRetina: true,
     attribution: "Câmera Topográfica · FABDEM",
   };
 }
+// PNG pronto (fonte `ee`) com a mesma porteira: o <img> só ganha src depois
+// da prévia. Tile removido antes disso já ganhou o src vazio do Leaflet — não
+// sobrescreve (senão pediria tile morto).
+const GatedTileLayer = LeanTileLayer.extend({
+  createTile(coords, done) {
+    const tile = document.createElement("img");
+    L.DomEvent.on(tile, "load", L.Util.bind(this._tileOnLoad, this, done, tile));
+    L.DomEvent.on(tile, "error", L.Util.bind(this._tileOnError, this, done, tile));
+    tile.alt = "";
+    tile.setAttribute("role", "presentation");
+    const url = this.getTileUrl(coords);
+    afterPreview(() => { if (!tile.hasAttribute("src")) tile.src = url; });
+    return tile;
+  },
+});
+function makeRelief(url, op) {
+  const field = url.startsWith("/field/");
+  const opts = Object.assign(reliefOpts(op, field), { gated: true });
+  return trackTiles(field ? new FieldLayer(url, opts) : new GatedTileLayer(url, opts), "relief");
+}
 function fadeContainer(layer) {
   const c = layer.getContainer();
   if (c) c.style.transition = `opacity ${RELIEF_FADE_MS}ms ease`;
 }
-let active = L.tileLayer(tileUrl(false), reliefOpts(P.opacity / 100));
-let fadeToken = 0;
+// Congela uma camada de relevo que saiu de cena: para de pedir tiles e CANCELA
+// os que ainda vinham; os prontos ficam na tela até o crossfade acabar. Sem
+// isto, trocar de DEM deixava a camada velha terminar a vista inteira — cada
+// clique enfileirava mais uma vista (144 → 288 → 432 tiles pendentes). `_update`
+// é o que CRIA tiles (o reposicionamento no zoom é outro caminho), então anulá-lo
+// na instância congela sem deixar os tiles prontos fora do lugar.
+function freezeRelief(layer) {
+  if (!layer || !layer._map) return;
+  layer._update = () => {};
+  for (const key of Object.keys(layer._tiles)) {
+    if (!layer._tiles[key].loaded) layer._removeTile(key);
+  }
+}
+// ── Progresso dos tiles (barra fina no topo) ─────────────────────────────────
+// Conta tiles PENDENTES por chave (camada:z:x:y) das camadas que o NOSSO
+// servidor renderiza (relevo + ⧉ não-base). Tile removido ainda carregando
+// (pan pra longe, camada velha do crossfade) só dispara `tileunload` no
+// Leaflet 1.9 — sem tratá-lo a barra travaria. Aparece só se passar de
+// PROG_SHOW_MS (tile em cache não pisca barra). Também move a PRÉVIA.
+const PROG_SHOW_MS = 250;
+const progEl = document.getElementById("load-progress");
+const progBar = progEl.querySelector(".bar"), progLbl = progEl.querySelector(".lbl");
+const pendingTiles = new Map();   // chave → "relief" | "ly"
+let progTotal = 0, statsInFlight = 0, progShowT = null, progHideT = null, progResetT = null;
+let waking = false;          // servidor em cold start (ver checkServerAwake)
+function trackTiles(layer, group) {
+  const id = L.stamp(layer);
+  const key = (e) => `${id}:${e.coords.z}:${e.coords.x}:${e.coords.y}`;
+  layer.on("tileloadstart", (e) => {
+    if (!pendingTiles.size) progTotal = 0;   // rodada nova
+    const k = key(e);
+    if (!pendingTiles.has(k)) { pendingTiles.set(k, group); progTotal++; }
+    updateProgress();
+  });
+  layer.on("tileload tileerror", (e) => {
+    if (e.type === "tileload") lastServerOk = Date.now();
+    if (pendingTiles.delete(key(e))) updateProgress();
+  });
+  // Cancelado (pan pra longe, camada congelada/removida): sai do TOTAL — não
+  // conta como feito, senão a barra "andava" com tile que nunca veio.
+  const cancel = (k) => { if (pendingTiles.delete(k)) progTotal = Math.max(0, progTotal - 1); };
+  layer.on("tileabort tileunload", (e) => { cancel(key(e)); updateProgress(); });
+  layer.on("remove", () => {   // rede de segurança: nada da camada fica pendente
+    for (const k of [...pendingTiles.keys()]) if (k.startsWith(id + ":")) cancel(k);
+    updateProgress();
+  });
+  return layer;
+}
+function updateProgress() {
+  const pending = pendingTiles.size;
+  setPreviewShown([...pendingTiles.values()].includes("relief"));
+  clearTimeout(progHideT); clearTimeout(progResetT);
+  if (!pending && !statsInFlight && !busy3d && !waking) { // terminou: enche, esmaece, zera
+    clearTimeout(progShowT); progShowT = null;
+    if (progEl.classList.contains("show")) {
+      progEl.classList.remove("indet");
+      progBar.style.width = "100%";
+      progHideT = setTimeout(() => progEl.classList.remove("show"), 300);
+      progResetT = setTimeout(() => { progBar.style.width = "0"; }, 700);
+    }
+    return;
+  }
+  if (!progEl.classList.contains("show") && !progShowT) {
+    progShowT = setTimeout(() => {
+      progShowT = null;
+      if (pendingTiles.size || statsInFlight || busy3d || waking) progEl.classList.add("show");
+    }, PROG_SHOW_MS);
+  }
+  const indet = !pending || waking;           // /stats (auto), 3D ou servidor acordando
+  progEl.classList.toggle("indet", indet);
+  if (waking) {
+    progLbl.textContent = "acordando o servidor… (depois de um tempo parado, leva alguns segundos)";
+    return;
+  }
+  if (indet) {
+    progLbl.textContent = statsInFlight ? "calculando a faixa da vista…" : "carregando o 3D…";
+    return;
+  }
+  const done = progTotal - pending;
+  const pct = Math.round((100 * done) / Math.max(1, progTotal));
+  progBar.style.width = Math.max(4, pct) + "%";
+  progEl.setAttribute("aria-valuenow", String(pct));
+  progLbl.textContent = `carregando tiles · ${done}/${progTotal}`;
+}
 
-if (P.lyOn.relevo) active.addTo(map);
+// ── Servidor acordando (cold start do Cloud Run) ────────────────────────────
+// Sem instância mínima, depois de um tempo parado o 1º pedido espera o Cloud
+// Run subir um contêiner (alguns segundos). Espera avisada é tolerável; muda,
+// parece travado. Pinga /health no boot e ao VOLTAR pra aba depois de
+// WAKE_IDLE_MS; se não responder em WAKE_WARN_MS, a barra avisa até responder.
+// (Quem abre a página pela 1ª vez num cold start espera o próprio HTML — sem JS
+// ainda, sem aviso; quem volta abre o shell do service worker na hora.)
+const WAKE_WARN_MS = 1200, WAKE_IDLE_MS = 10 * 60 * 1000;
+let lastServerOk = 0, wakeInFlight = false;
+async function checkServerAwake() {
+  if (wakeInFlight) return;
+  wakeInFlight = true;
+  const warn = setTimeout(() => { waking = true; updateProgress(); }, WAKE_WARN_MS);
+  try {
+    await fetch("/health?_=" + Date.now(), { cache: "no-store" });
+    lastServerOk = Date.now();
+  } catch (e) { /* offline: os tiles falham sozinhos; nada a avisar aqui */ }
+  clearTimeout(warn);
+  wakeInFlight = false;
+  if (waking) { waking = false; updateProgress(); }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && Date.now() - lastServerOk > WAKE_IDLE_MS) checkServerAwake();
+});
+
+// ── Prévia do relevo em baixa resolução ─────────────────────────────────────
+// A mesma fonte, até PREVIEW_ZOFF zooms ABAIXO do que o relevo pede (1/16 dos
+// tiles), embaixo no mesmo pane (zIndex 0); só aparece enquanto há tile de
+// relevo pendente (com opacidade < 100% não "vaza" sob o relevo pronto). Não
+// conta na barra (é o tapa-buraco, não o objetivo). Dois cuidados:
+//  • o deslocamento é relativo ao zoom que o relevo PEDE (retina pede z+1) e
+//    nunca desce abaixo de PREVIEW_MIN_Z da fonte: o mosaico FABDEM tem teto
+//    de span/nº de COGs (render.MOSAIC_MAX_*) e z ≤ 6 sai VAZIO — em z7 a
+//    prévia pedia z5 e não mostrava nada. Onde não cabe 1 zoom abaixo, sem
+//    prévia. Muda com o zoom → a camada é recriada (tileSize/zoomOffset fixos).
+//  • PORTEIRA: os tiles cheios só saem depois que a prévia do lote chegou (ou
+//    PREVIEW_GATE_MS). Sem isso ela competia com dezenas de tiles cheios na
+//    fila do servidor (o dev server do Flask roda TODOS em paralelo) e chegava
+//    junto com eles, sem servir pra nada.
+const PREVIEW_ZOFF = 2, PREVIEW_GATE_MS = 2500;
+const PREVIEW_MIN_Z = { fabdem: 7, sp: 0, ee: 0 };
+const RETINA = L.Browser.retina ? 1 : 0;   // o relevo usa detectRetina
+function previewOffset() {
+  const z = Math.min(Math.round(map.getZoom()), RELIEF_MAX_NATIVE) + RETINA;  // zoom pedido
+  return Math.max(0, Math.min(PREVIEW_ZOFF, z - PREVIEW_MIN_Z[P.dem]));
+}
+let gate = null, gateOpen = null, gateTimer = null;
+function openGate() {
+  clearTimeout(gateTimer);
+  if (gateOpen) gateOpen();
+  gate = gateOpen = null;
+}
+// Microtask: no MESMO moveend a prévia pode rodar o _update DEPOIS do relevo —
+// só então a porteira fecha; o tile cheio espera o fim do despacho pra decidir.
+function afterPreview(fn) { Promise.resolve().then(() => (gate ? gate.then(fn) : fn())); }
+function makePreview(url, d) {   // mesmo tipo do relevo (campo colorido aqui ou PNG pronto)
+  const opts = {
+    pane: "ly-relevo", zIndex: 0, opacity: previewShown ? P.opacity / 100 : 0,
+    // tile de (z_pedido − d) cobre 256·2^(d−retina) px CSS no zoom do mapa
+    tileSize: 256 * 2 ** (d - RETINA), zoomOffset: RETINA - d,
+    minNativeZoom: Math.max(0, d - RETINA), maxNativeZoom: RELIEF_MAX_NATIVE, minZoom: 0, maxZoom: 22,
+    keepBuffer: 1, updateWhenZooming: false, updateWhenIdle: true,
+  };
+  const ly = url.startsWith("/field/") ? new FieldLayer(url, opts) : new LeanTileLayer(url, opts);
+  ly._zoff = d;
+  ly.on("loading", () => {
+    if (gate) return;
+    gate = new Promise((res) => { gateOpen = res; });
+    gateTimer = setTimeout(openGate, PREVIEW_GATE_MS);
+  });
+  ly.on("load", openGate);
+  return ly;
+}
+let previewShown = false;
+let preview = null;
+// Reconcilia a prévia com fonte/zoom/estado (idempotente): recria se o
+// deslocamento ou o TIPO (ee ↔ colorido) mudou, some se não cabe/relevo off/3D.
+function ensurePreview(url = reliefUrl()) {
+  const d = previewOffset();
+  const want = P.lyOn.relevo && !in3d && d > 0;
+  if (preview && (!want || preview._zoff !== d
+      || (preview instanceof FieldLayer) !== url.startsWith("/field/"))) {
+    map.removeLayer(preview); preview = null; openGate();
+  }
+  if (!want) return;
+  if (!preview) preview = makePreview(url, d).addTo(map);
+  else if (preview._url !== url) preview.setUrl(url);
+}
+map.on("zoomend", () => ensurePreview());
+function setPreviewShown(on) {
+  if (on === previewShown) return;
+  previewShown = on;
+  if (!preview) return;
+  const c = preview.getContainer();
+  // aparece na hora (é tapa-buraco); some com fade quando o relevo completou
+  if (c) c.style.transition = on ? "none" : `opacity ${RELIEF_FADE_MS}ms ease`;
+  preview.setOpacity(on ? P.opacity / 100 : 0);
+}
+
+let active = makeRelief(reliefUrl(), P.opacity / 100);
+let fadeToken = 0, incomingRelief = null;
+
+if (P.lyOn.relevo && !in3d) { ensurePreview(); active.addTo(map); }   // prévia ANTES: fecha a porteira
 
 let tileTimer = null;
 function refreshTiles() {
+  // Colorido no navegador: a cor nova sai JÁ (sem debounce, sem rede).
+  if (fieldLayers.size) scheduleRepaint();
   clearTimeout(tileTimer);
   tileTimer = setTimeout(() => {
-    if (P.lyOn.relevo) crossfadeRelief(tileUrl(false));
-    syncEeLayers();   // camadas ⧉ dependentes de params (elevação/declives)
+    // só busca tiles novos se a FONTE mudou (DEM/ss; qualquer param no `ee`)
+    if (P.lyOn.relevo && !in3d && (incomingRelief || active)._url !== reliefUrl()) crossfadeRelief(reliefUrl());
+    syncEeLayers();   // camadas ⧉ dependentes de params (elevação/declives) + 3D
   }, 220);
 }
 function crossfadeRelief(url) {
   if (!P.lyOn.relevo) return;
   const token = ++fadeToken;
-  const incoming = L.tileLayer(url, reliefOpts(0)).addTo(map);
+  // Crossfade anterior ainda carregando = superado: sai JÁ (cancela os tiles
+  // dele), e a camada visível para de buscar os seus — ver freezeRelief.
+  if (incomingRelief) { map.removeLayer(incomingRelief); incomingRelief = null; }
+  freezeRelief(active);
+  ensurePreview(url);     // prévia já na fonte nova (antes do relevo: porteira)
+  const incoming = incomingRelief = makeRelief(url, 0).addTo(map);
   fadeContainer(incoming);
   let done = false;
   const swap = () => {
     if (done) return;
     done = true;
     if (token !== fadeToken) { map.removeLayer(incoming); return; }  // já superada
+    incomingRelief = null;
     incoming.setOpacity(P.opacity / 100);
     const old = active; active = incoming;
     fadeContainer(old); old.setOpacity(0);
@@ -871,6 +1341,7 @@ function setReliefOpacity(frac) {
   const c = active.getContainer();
   if (c) c.style.transition = "none";
   active.setOpacity(frac);
+  if (previewShown && preview) preview.setOpacity(frac);
 }
 
 // ── Camadas ⧉ (as do app GEE, via /ee/<id>/…) ────────────────────────────────
@@ -919,7 +1390,7 @@ function syncEeLayers() {
     }
     if (l.base) {          // bases: tile layer direto (híbrido é um grupo)
       let ly = eeLayerObjs[l.id];
-      if (P.lyOn[l.id]) {
+      if (P.lyOn[l.id] && !in3d) {
         if (!ly) {
           ly = eeLayerObjs[l.id] = makeBaseLayer(l.base, "ly-" + l.id);
           if (ly.eachLayer) ly.eachLayer((sub) => wireLoading(sub, l.id));
@@ -931,22 +1402,27 @@ function syncEeLayers() {
       continue;
     }
     if (l.relief) {   // relevo = a camada existente; crossfade cuida da URL
-      const on = !!P.lyOn.relevo;
-      if (on && !map.hasLayer(active)) { active.addTo(map); crossfadeRelief(tileUrl(false)); }
-      else if (!on && map.hasLayer(active)) map.removeLayer(active);
+      const on = !in3d && !!P.lyOn.relevo;
+      if (on && !map.hasLayer(active)) {
+        ensurePreview(); active.addTo(map);
+        if (active._url !== reliefUrl()) crossfadeRelief(reliefUrl());
+        else scheduleRepaint();
+      } else if (!on && map.hasLayer(active)) { map.removeLayer(active); ensurePreview(); }
       continue;
     }
-    const on = !!P.lyOn[l.id];
+    const on = !in3d && !!P.lyOn[l.id];
     let ly = eeLayerObjs[l.id];
     if (on) {
       const url = eeLayerUrl(l.id);
       if (!ly) {
-        ly = eeLayerObjs[l.id] = L.tileLayer(url, {
+        ly = eeLayerObjs[l.id] = new LeanTileLayer(url, {
           pane: "ly-" + l.id, opacity: layerOpacity(l.id) / 100,
           maxNativeZoom: l.zmax || 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
+          updateWhenIdle: true,   // idem relevo: nada de tile varrido no arrasto
           attribution: l.attr || "Camadas · Google Earth Engine",
         });
         wireLoading(ly, l.id);
+        if (!/^https?:/.test(url)) trackTiles(ly, "ly");   // só o que o NOSSO servidor renderiza
       } else if (ly._url !== url) ly.setUrl(url);
       ly.setOpacity(layerOpacity(l.id) / 100);
       if (!map.hasLayer(ly)) ly.addTo(map);
@@ -954,6 +1430,7 @@ function syncEeLayers() {
       map.removeLayer(ly);
     }
   }
+  if (in3d) sync3dLayers();   // no 3D as mesmas camadas vivem no MapLibre
 }
 
 // Painel ⧉ — linhas TOPO → FUNDO (como no amora): ▲▼ · ligar · nome · opacidade
@@ -990,6 +1467,7 @@ function rebuildLayersPanel() {
         if (l.base || l.draw) map.getPane("ly-" + id).style.opacity = String(v / 100);
         else if (eeLayerObjs[id]) eeLayerObjs[id].setOpacity(v / 100);
       }
+      if (in3d) sync3dLayers();
       writeHash();
     });
     box.appendChild(row);
@@ -1000,6 +1478,7 @@ function moveLayer(id, dir) {   // +1 = em direção ao topo
   if (j < 0 || j >= P.stack.length) return;
   [P.stack[i], P.stack[j]] = [P.stack[j], P.stack[i]];
   applyStackZ(); rebuildLayersPanel(); writeHash();
+  if (in3d) sync3dLayers();
 }
 // Sincroniza valores das linhas SEM reconstruir (não mata um slider em arrasto).
 function syncLayersPanelValues() {
@@ -1030,6 +1509,7 @@ async function runAutoEstimate() {
   if (key === lastAutoKey) return;                 // viewport ~igual → não recomputa
   lastAutoKey = key;
   const myTok = ++autoReqToken;                     // esta é a requisição vigente
+  statsInFlight++; updateProgress();                // barra indeterminada até os tiles
   try {
     const bbox = `${w.toFixed(5)},${s.toFixed(5)},${e.toFixed(5)},${n.toFixed(5)}`;
     const r = await fetch(`/stats?bbox=${bbox}&dem=${P.dem}`);
@@ -1053,6 +1533,8 @@ async function runAutoEstimate() {
     lastAutoKey = "";
     if (autoResolved) { autoResolved = false; refreshTiles(); }
     syncInputs(); updateLegend();
+  } finally {
+    statsInFlight--; updateProgress();
   }
 }
 
@@ -1252,6 +1734,7 @@ const CtMapButtons = L.Control.extend({
         '<svg class="loc-ico" viewBox="0 0 512 512" width="21" height="21" fill="currentColor" aria-hidden="true"><path d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>' +
       '</button>' +
       '<button id="btn-auto" class="map-btn" type="button" title="Faixa automática (segue a tela)" aria-label="Faixa automática" aria-pressed="false">A</button>' +
+      '<button id="btn-3d" class="map-btn" type="button" title="Modo 3D (terreno do DEM selecionado)" aria-label="Modo 3D" aria-pressed="false">3D</button>' +
       '<button id="btn-pencil" class="map-btn" type="button" title="Ferramentas de desenho" aria-label="Ferramentas de desenho" aria-pressed="false">' +
         '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="pointer-events:none"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>' +
       '</button>' +
@@ -1636,6 +2119,243 @@ $("btn-eye").addEventListener("click", () => {
   if (on) { cancelDraw(); setPanelOpen(false); setLayersPanelOpen(false); colorFlyout.hidden = true; }
 });
 
+// ── Modo 3D (MapLibre GL, vendorado, carregado SÓ quando liga) ──────────────
+// O Leaflet segue como mapa "mestre" (hash, /stats do auto, busca, localização):
+// no 3D ele fica embaixo do #map3d SEM camadas de tile (in3d zera o
+// syncEeLayers — o servidor não renderiza tudo duas vezes) e acompanha a câmera
+// do MapLibre a cada moveend. Terreno = /terrain/ (Terrarium) do DEM
+// selecionado; por cima, as MESMAS camadas ligadas no ⧉, na mesma ordem e
+// opacidade (desenhos ficam só no 2D). Zoom: o MapLibre mede o mundo em 512 px
+// e o Leaflet em 256 → z3d = z2d − 1. Bearing: o leaflet-rotate gira o
+// conteúdo no sentido horário → bearing3d = −bearing2d.
+const TERRAIN_VERSION = "1";                       // = render.TERRAIN_VERSION — bump JUNTO
+const TERRAIN_MAXZOOM = { fabdem: 12, sp: 15 };    // = render.TERRAIN_MAXZOOM
+let map3d = null, map3dLoaded = false, sync3dGuard = false, busy3d = false;
+const tiles3d = new Map();   // id da fonte → URL atual (setTiles só se mudou)
+let terrainDemOn = null;     // DEM do terreno montado
+function loadMapLibre() {
+  if (window.maplibregl) return Promise.resolve();
+  if (loadMapLibre.p) return loadMapLibre.p;
+  loadMapLibre.p = new Promise((res, rej) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet"; css.href = "vendor/maplibre-gl/maplibre-gl.css";
+    document.head.appendChild(css);
+    const js = document.createElement("script");
+    js.src = "vendor/maplibre-gl/maplibre-gl.js";
+    js.onload = res;
+    js.onerror = () => { loadMapLibre.p = null; rej(new Error("maplibre-gl")); };
+    document.head.appendChild(js);
+  });
+  return loadMapLibre.p;
+}
+const absUrl = (u) => (/^https?:/.test(u) ? u : location.origin + u);
+const terrainDem = () => (P.dem === "sp" ? "sp" : "fabdem");   // ee = FABDEM (mesmos dados)
+// Camadas raster desejadas no 3D, FUNDO → TOPO.
+function layers3d() {
+  const out = [];
+  const esri = (svc) => `${ESRI}/${svc}/MapServer/tile/{z}/{y}/{x}`;
+  for (const id of P.stack) {
+    const l = LAYER_BY_ID[id];
+    if (!P.lyOn[id] || l.draw) continue;
+    const opacity = layerOpacity(id) / 100;
+    if (l.base === "osm") {
+      out.push({ id, tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], maxzoom: 19, opacity });
+    } else if (l.base) {
+      out.push({ id, tiles: [esri("World_Imagery")], maxzoom: 19, opacity });
+      if (l.base === "hibrido") {
+        out.push({ id: id + "-vias", tiles: [esri("Reference/World_Transportation")], maxzoom: 19, opacity });
+        out.push({ id: id + "-nomes", tiles: [esri("Reference/World_Boundaries_and_Places")], maxzoom: 19, opacity });
+      }
+    } else if (l.relief) {
+      out.push({ id, tiles: [tileUrl(true)], maxzoom: RELIEF_MAX_NATIVE, opacity });
+    } else {
+      out.push({ id, tiles: [absUrl(eeLayerUrl(id))], maxzoom: l.zmax || 16, opacity });
+    }
+  }
+  return out;
+}
+function mountTerrain() {
+  const dem = terrainDem();
+  if (map3d.getTerrain()) map3d.setTerrain(null);
+  if (map3d.getSource("dem")) map3d.removeSource("dem");
+  map3d.addSource("dem", {
+    type: "raster-dem", encoding: "terrarium", tileSize: 256, maxzoom: TERRAIN_MAXZOOM[dem],
+    tiles: [`${location.origin}/terrain/{z}/{x}/{y}.png?dem=${dem}&v=${TERRAIN_VERSION}`],
+  });
+  map3d.setTerrain({ source: "dem", exaggeration: P.ex });
+  terrainDemOn = dem;
+}
+function applyExaggeration() {
+  if (map3dLoaded && map3d.getTerrain()) map3d.setTerrain({ source: "dem", exaggeration: P.ex });
+  $("ex3d").value = String(P.ex);
+  $("ex3d-val").textContent = `×${P.ex.toFixed(1)}`;
+}
+// FOV: estreito = "teleobjetiva" (achata a perspectiva, bom pra ler relevo de
+// longe); largo = grande-angular (exagera a profundidade perto da câmera).
+function applyFov() {
+  if (map3d && map3d.setVerticalFieldOfView) map3d.setVerticalFieldOfView(P.fov);
+  $("fov3d").value = String(P.fov);
+  $("fov3d-val").textContent = `${Math.round(P.fov)}°`;
+}
+// Reconcilia o MapLibre com o estado (camadas, URLs, ordem, opacidade, DEM).
+function sync3dLayers() {
+  if (!map3d || !map3dLoaded) return;
+  const want = layers3d();
+  const ids = new Set(want.map((w) => "r-" + w.id));
+  for (const sid of [...tiles3d.keys()]) {
+    if (ids.has(sid)) continue;
+    map3d.removeLayer(sid); map3d.removeSource(sid); tiles3d.delete(sid);
+  }
+  for (const w of want) {
+    const sid = "r-" + w.id;
+    if (!tiles3d.has(sid)) {
+      map3d.addSource(sid, { type: "raster", tiles: w.tiles, tileSize: 256, maxzoom: w.maxzoom });
+      map3d.addLayer({ id: sid, type: "raster", source: sid,
+        paint: { "raster-opacity": w.opacity, "raster-fade-duration": 150 } });
+    } else if (tiles3d.get(sid) !== w.tiles[0]) {
+      map3d.getSource(sid).setTiles(w.tiles);
+    }
+    tiles3d.set(sid, w.tiles[0]);
+    map3d.setPaintProperty(sid, "raster-opacity", w.opacity);
+  }
+  for (const w of want) map3d.moveLayer("r-" + w.id);   // ordem da pilha ⧉
+  if (terrainDemOn !== terrainDem()) mountTerrain();
+  // Com terreno, as camadas raster são pintadas em texturas cacheadas (RTT)
+  // drapeadas na malha, e a "impressão digital" do cache só olha os TILES — mudar
+  // só paint (opacidade) não invalidava: o 3D mostrava o valor ANTERIOR (0% →
+  // opaco, 100% → transparente). Descarta as texturas e repinta. API interna
+  // do MapLibre 5.x (terrain.tileManager.freeRtt) — daí o optional chaining.
+  map3d.terrain?.tileManager?.freeRtt?.();
+  map3d.triggerRepaint();
+}
+async function set3d(on) {
+  P.d3 = on;
+  $("btn-3d").setAttribute("aria-pressed", String(on));
+  document.body.classList.toggle("mode3d", on);
+  writeHash();
+  if (!on) {
+    if (map3d) { map3d.remove(); map3d = null; }
+    map3dLoaded = false; tiles3d.clear(); terrainDemOn = null; busy3d = false;
+    $("map3d").hidden = true;
+    in3d = false;
+    syncEeLayers();          // devolve as camadas de tile ao Leaflet
+    updateProgress();
+    return;
+  }
+  in3d = true;
+  cancelDraw();
+  syncEeLayers();            // tira as camadas de tile do Leaflet
+  if (map3d) return;
+  busy3d = true; updateProgress();
+  try {
+    await loadMapLibre();
+  } catch (e) {
+    busy3d = false; toast("Não consegui carregar o 3D."); set3d(false); return;
+  }
+  if (!P.d3 || map3d) return;   // desligou (ou religou) enquanto carregava
+  const el = $("map3d");
+  el.hidden = false;
+  const c = map.getCenter();
+  try {
+    map3d = new maplibregl.Map({
+      container: el, center: [c.lng, c.lat], zoom: map.getZoom() - 1,
+      bearing: -P.rot, pitch: P.pitch, maxPitch: 85, attributionControl: false,
+      style: {
+        // transição 0: com terreno, a textura drapeada (RTT) é capturada no 1º
+        // quadro da transição de paint (300 ms por padrão) e não se atualiza
+        // durante ela — a opacidade ficava um passo ATRASADA (0% → opaco).
+        version: 8, sources: {}, transition: { duration: 0, delay: 0 },
+        layers: [{ id: "fundo", type: "background", paint: { "background-color": "#0b0d10" } }],
+        sky: { "sky-color": "#1b2430", "horizon-color": "#5a6675", "fog-color": "#0b0d10",
+               "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.9 },
+      },
+    });
+  } catch (e) {               // sem WebGL etc.
+    map3d = null; busy3d = false; toast("3D indisponível neste navegador."); set3d(false); return;
+  }
+  map3d.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+  // botão direito arrasta = gira/inclina; sem o menu de contexto por cima
+  map3d.getCanvasContainer().addEventListener("contextmenu", (e) => e.preventDefault());
+  map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); });
+  map3d.on("dataloading", () => { if (!busy3d) { busy3d = true; updateProgress(); } });
+  map3d.on("idle", () => { if (busy3d) { busy3d = false; updateProgress(); } });
+  map3d.on("moveend", () => {   // Leaflet acompanha (hash, auto, busca)
+    if (camHeld) return;        // pad segurado: jumpTo a cada quadro — sincroniza ao soltar
+    const m = map3d.getCenter();
+    P.pitch = map3d.getPitch();
+    sync3dGuard = true;
+    map.setView([m.lat, m.lng], Math.round(map3d.getZoom() + 1), { animate: false });
+    map.setBearing(-map3d.getBearing());
+    sync3dGuard = false;
+    writeHash();
+  });
+}
+// ── Pad da câmera 3D: segurar = mover contínuo (rAF, taxa por segundo) ──────
+// Avançar/recuar/deslizar são RELATIVOS à direção da câmera (panBy em px de
+// tela, escalado pela largura → mesma sensação em qualquer zoom); altitude =
+// zoom (é o que muda a altura da câmera no MapLibre). Teclado: o MapLibre já
+// tem setas (mover), Shift+setas (girar/inclinar) e +/− com o mapa focado.
+const CAM_RATE = {
+  fwd: { pan: [0, -1] }, back: { pan: [0, 1] }, left: { pan: [-1, 0] }, right: { pan: [1, 0] },
+  rotL: { bearing: -60 }, rotR: { bearing: 60 },           // °/s
+  tiltUp: { pitch: 30 }, tiltDown: { pitch: -30 },         // °/s
+  up: { zoom: -0.8 }, down: { zoom: 0.8 },                 // níveis de zoom/s
+};
+const CAM_PAN_FRAC = 0.45;   // fração da largura da tela por segundo
+let camHeld = null, camRaf = 0, camLast = 0;
+function camStep(now) {
+  if (!camHeld || !map3d) { camRaf = 0; return; }
+  // dt real (≥0; teto 0,25 s): em GPU lenta/poucos fps a velocidade por
+  // segundo se mantém — com teto baixo o giro/altitude "emperravam"
+  const dt = Math.max(0, Math.min(0.25, (now - camLast) / 1000)); camLast = now;
+  const r = CAM_RATE[camHeld];
+  if (r.pan) {
+    const v = map3d.getCanvas().clientWidth * CAM_PAN_FRAC * dt;
+    map3d.panBy([r.pan[0] * v, r.pan[1] * v], { duration: 0 });
+  } else {
+    const o = {};
+    if (r.bearing) o.bearing = map3d.getBearing() + r.bearing * dt;
+    if (r.pitch) o.pitch = Math.min(map3d.getMaxPitch(), Math.max(0, map3d.getPitch() + r.pitch * dt));
+    if (r.zoom) o.zoom = Math.min(22, Math.max(1, map3d.getZoom() + r.zoom * dt));
+    map3d.jumpTo(o);
+  }
+  camRaf = requestAnimationFrame(camStep);
+}
+function camStop() {
+  if (!camHeld) return;
+  document.querySelector(`.pad3d button[data-cam="${camHeld}"]`)?.classList.remove("on");
+  camHeld = null;
+  if (map3d) map3d.fire("moveend");   // sincroniza o Leaflet/hash uma vez
+}
+document.querySelectorAll(".pad3d button").forEach((b) => {
+  b.addEventListener("pointerdown", (e) => {
+    if (!map3d) return;
+    e.preventDefault();
+    b.setPointerCapture(e.pointerId);
+    camHeld = b.dataset.cam; b.classList.add("on");
+    camLast = performance.now();
+    if (!camRaf) camRaf = requestAnimationFrame(camStep);
+  });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, camStop);
+});
+window.addEventListener("blur", camStop);
+
+// Movimento vindo do Leaflet (busca, 📍, link colado) → câmera 3D.
+map.on("moveend", () => {
+  if (!map3d || sync3dGuard) return;
+  const c = map.getCenter();
+  map3d.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() - 1 });
+});
+$("btn-3d").addEventListener("click", () => set3d(!P.d3));
+$("fov3d").addEventListener("input", (e) => {
+  P.fov = Math.min(80, Math.max(5, parseFloat(e.target.value) || 37));
+  applyFov(); writeHash();
+});
+$("ex3d").addEventListener("input", (e) => {
+  P.ex = Math.min(5, Math.max(1, parseFloat(e.target.value) || 1.5));
+  applyExaggeration(); writeHash();
+});
+
 // ── Modal de ajuda ───────────────────────────────────────────────────────────
 const helpModal = $("help-modal");
 function openHelp() { helpModal.hidden = false; }
@@ -1728,6 +2448,8 @@ window.addEventListener("hashchange", () => {
   applyStackZ(); syncEeLayers(); rebuildLayersPanel();
   syncInputs(); updateLegend(); refreshTiles();
   if (P.auto) runAutoEstimate();
+  if (P.d3 !== !!map3d) set3d(P.d3);
+  else if (map3d) { map3d.setPitch(P.pitch); applyExaggeration(); applyFov(); }
 });
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
@@ -1740,6 +2462,8 @@ map.addControl(new (L.Control.extend({
 }))());
 rebuildLayersPanel(); syncEeLayers();   // camadas ⧉ do hash (se houver)
 syncInputs(); updateLegend();
+if (P.d3) set3d(true);           // link aberto já em 3D
+checkServerAwake();              // cold start → avisa na barra
 if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
 
 // PWA: service worker (shell offline + abertura instantânea). Ver web/sw.js —

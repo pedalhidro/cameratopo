@@ -7,13 +7,13 @@
  * Estratégia:
  * - Shell (index, vendor, manifest, ícones): stale-while-revalidate — abre
  *   instantâneo (e offline), atualiza por baixo; a próxima visita pega o novo.
- * - Tiles (/{z}/{x}/{y}.png, /ee/…), /stats e hosts externos (OSM, Esri,
+ * - Tiles (/{z}/{x}/{y}.png, /ee/…, /field/…, /terrain/…), /stats e hosts externos (OSM, Esri,
  *   Nominatim, EE): SÓ rede — têm cache HTTP próprio (Cache-Control de 7 dias
  *   + v= de cache-buster) e são grandes demais pra duplicar no CacheStorage.
  */
 "use strict";
 
-const VERSION = "13";
+const VERSION = "16";
 const CACHE = `cameratopo-v${VERSION}`;
 
 const SHELL = [
@@ -50,7 +50,7 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;               // externos: só rede
-  if (/^\/(\d+\/\d+\/\d+\.png|ee\/|osm\/|stats)/.test(url.pathname)) return;  // tiles/stats: só rede
+  if (/^\/(\d+\/\d+\/\d+\.png|ee\/|osm\/|terrain\/|field\/|stats)/.test(url.pathname)) return;  // tiles/campos/terreno/stats: só rede
 
   // Shell: stale-while-revalidate (navegações caem no "./")
   const key = req.mode === "navigate" ? "./" : req;
