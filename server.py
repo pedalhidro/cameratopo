@@ -78,7 +78,7 @@ os.environ.setdefault("VSI_CACHE", "TRUE")
 # contaria o mesmo segundo até 8×. Um "relógio virtual" que anda 1/n com n
 # pedidos em voo dá a cada pedido a sua fatia; a soma das fatias = tempo
 # faturado exato (fora cold start e o arredondamento de 100 ms).
-_TIMED = ("/field/", "/terrain/", "/ee/", "/osm/", "/stats", "/fx", "/health")
+_TIMED = ("/field/", "/terrain/", "/ee/", "/osm/", "/stats", "/fx", "/costs", "/health")
 _busy = {"n": 0, "v": 0.0, "t": time.monotonic()}
 _busy_lock = threading.Lock()
 
@@ -162,6 +162,72 @@ def fx():
         if _fx["usdbrl"] is None:
             return _json_cors({"usdbrl": FX_FALLBACK, "date": None, "source": "fallback"}, 200)
         return _json_cors({"usdbrl": _fx["usdbrl"], "date": _fx["date"], "source": "PTAX/BCB"}, 200)
+
+
+# Custo REAL do serviço (fatura), do export de faturamento no BigQuery — não é
+# estimativa: o que o Google cobrou pelo Cloud Run `cameratopo` (inclui a saída
+# de dados dele). A preço de tabela (`gross`) e pago de fato, após créditos /
+# franquia grátis (`net`). O export atrasa ~1 dia (`last_day` diz até quando).
+# Fica de fora o que é compartilhado entre os serviços do projeto (Artifact
+# Registry, bucket de fontes) e o Earth Engine (não aparece na fatura).
+# A SA do serviço precisa de roles/bigquery.jobUser no projeto + leitura no
+# dataset; sem isso → {"ok": false} e a UI mostra "indisponível".
+BILLING_TABLE = os.environ.get("CAMERATOPO_BILLING_TABLE") or \
+    "pedal-hidrografico.billing_export.gcp_billing_export_resource_v1_015CF8_384D2A_5CE27E"
+BILLING_PROJECT = os.environ.get("CAMERATOPO_BILLING_PROJECT") or "pedal-hidrografico"
+COSTS_TTL_S = 6 * 3600
+_costs = {"data": None, "t": 0.0}
+_costs_lock = threading.Lock()
+_COSTS_SQL = f"""
+SELECT ANY_VALUE(currency) AS currency,
+  SUM(cost) AS gross_all,
+  SUM(cost + IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)) AS net_all,
+  SUM(IF(DATE(usage_start_time) > DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY), cost, 0)) AS gross_7d,
+  SUM(IF(DATE(usage_start_time) > DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY),
+         cost + IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0), 0)) AS net_7d,
+  CAST(MIN(DATE(usage_start_time)) AS STRING) AS first_day,
+  CAST(MAX(DATE(usage_end_time)) AS STRING) AS last_day
+FROM `{BILLING_TABLE}`
+WHERE project.id = @project AND service.description = "Cloud Run" AND resource.name = "cameratopo"
+"""
+
+
+def _query_costs():
+    import google.auth
+    from google.auth.transport.requests import AuthorizedSession
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/bigquery.readonly",
+                                           "https://www.googleapis.com/auth/cloud-platform"])
+    body = {"query": _COSTS_SQL, "useLegacySql": False, "timeoutMs": 20000,
+            "location": "southamerica-east1",
+            "queryParameters": [{"name": "project", "parameterType": {"type": "STRING"},
+                                 "parameterValue": {"value": BILLING_PROJECT}}]}
+    r = AuthorizedSession(creds).post(
+        f"https://bigquery.googleapis.com/bigquery/v2/projects/{BILLING_PROJECT}/queries",
+        json=body, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+    names = [f["name"] for f in j["schema"]["fields"]]
+    row = dict(zip(names, (c["v"] for c in j["rows"][0]["f"])))
+    num = lambda k: float(row[k]) if row.get(k) is not None else 0.0  # noqa: E731
+    return {"currency": row["currency"], "gross_all": num("gross_all"), "net_all": num("net_all"),
+            "gross_7d": num("gross_7d"), "net_7d": num("net_7d"),
+            "first_day": row["first_day"], "last_day": row["last_day"]}
+
+
+@app.get("/costs")
+def costs():
+    """Custo real do serviço (todos os usuários), da fatura — cache COSTS_TTL_S."""
+    with _costs_lock:
+        if _costs["data"] is None or time.time() - _costs["t"] > COSTS_TTL_S:
+            try:
+                _costs["data"] = _query_costs()
+                _costs["t"] = time.time()
+            except Exception as exc:  # noqa: BLE001
+                app.logger.warning("custos (BigQuery) falhou: %s", exc)
+                _costs["t"] = time.time() - COSTS_TTL_S + 600   # tenta de novo em 10 min
+        if _costs["data"] is None:
+            return _json_cors({"ok": False}, 200)
+        return _json_cors({"ok": True, **_costs["data"]}, 200)
 
 
 def _fnum(name):

@@ -307,6 +307,8 @@
   #cost-pop .big { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
   #cost-pop ul { margin: 6px 0; padding-left: 16px; }
   #cost-pop .fine { font-size: 10px; color: var(--panel-muted); }
+  #cost-pop .lt { font-size: 11px; font-weight: 700; margin-top: 8px; }
+  #cost-pop { max-height: calc(100vh - 120px); overflow-y: auto; }
   body.immersive .ct-cost, body.immersive #cost-pop { display: none; }
 
   /* Modo imersivo (👁): só o mapa + o olho, que vira o INVERSO do que está
@@ -2519,7 +2521,7 @@ const COST = {
   egressPerGib: 0.12,                 // US$/GiB internet América do Sul → América do Sul
   safety: 3,
 };
-const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|osm\/|stats|fx|health)/;
+const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|osm\/|stats|fx|costs|health)/;
 const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0 };
 let fxRate = null, fxDate = null, fxSource = "", clockSkew = null, costRaf = 0;
 function accountEntry(e) {
@@ -2553,7 +2555,48 @@ function accountEntry(e) {
     }
   }
   costAcc.usd += usd;
+  costPending += usd;
   if (!costRaf) costRaf = requestAnimationFrame(renderCost);
+}
+
+// Acumulado NESTE navegador: USD crus (sem fator/câmbio — aplicados na
+// exibição) por dia local, em localStorage. Só conveniência por navegador: pode
+// sumir (aba anônima, limpeza) e cada aba soma só o próprio delta.
+const COST_KEY = "cameratopo-cost-v1";
+let costPending = 0;
+const dayKey = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function readCostStore() {
+  try { return JSON.parse(localStorage.getItem(COST_KEY)) || { d: {} }; } catch (e) { return { d: {} }; }
+}
+function flushCostStore() {
+  if (!costPending) return;
+  const st = readCostStore(), k = dayKey();
+  st.d[k] = (st.d[k] || 0) + costPending;
+  costPending = 0;
+  try { localStorage.setItem(COST_KEY, JSON.stringify(st)); } catch (e) { /* sem storage: fica só a sessão */ }
+}
+setInterval(flushCostStore, 3000);
+addEventListener("pagehide", flushCostStore);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushCostStore(); });
+function browserTotals() {
+  const days = readCostStore().d, today = dayKey();
+  days[today] = (days[today] || 0) + costPending;
+  const cut = dayKey(new Date(Date.now() - 6 * 86400000));   // hoje + 6 dias antes
+  let all = 0, d7 = 0, first = null;
+  for (const [k, v] of Object.entries(days)) {
+    all += v; if (k >= cut) d7 += v;
+    if (!first || k < first) first = k;
+  }
+  return { all, d7, first };
+}
+// Serviço inteiro (todos os usuários): FATURA real via /costs (BigQuery), não
+// estimativa. Busca uma vez por abertura do cartão (o servidor cacheia 6 h).
+let billing = null, billingAt = 0;
+function loadBilling() {
+  if (Date.now() - billingAt < 10 * 60 * 1000) return;
+  billingAt = Date.now();
+  fetch("/costs").then((r) => r.json()).then((j) => { billing = j; renderCost(); }).catch(() => {});
 }
 const brl = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL",
   minimumFractionDigits: v < 1 ? 4 : 2, maximumFractionDigits: v < 1 ? 4 : 2 });
@@ -2562,22 +2605,45 @@ function renderCost() {
   const pill = document.getElementById("cost-pill");
   if (!pill) return;
   const rate = fxRate || 5.18;
+  const est = (usd) => brl(usd * COST.safety * rate);   // estimativa: ×fator, em R$
   const total = costAcc.usd * COST.safety * rate;
   pill.textContent = `custo desta sessão ≈ ${brl(total)}`;
   const pop = document.getElementById("cost-pop");
   if (pop.hidden) return;
   const fmt = (n, d = 1) => n.toLocaleString("pt-BR", { maximumFractionDigits: d });
+  const dmy = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
+  const bt = browserTotals();
+  let coll = `<div class="fine">indisponível no momento</div>`;
+  if (billing && billing.ok) {
+    const cv = (v) => brl(billing.currency === "BRL" ? v : v * rate);
+    coll =
+      "<ul>" +
+      `<li>últimos 7 dias: <b>${cv(billing.gross_7d)}</b> a preço de tabela · ${cv(billing.net_7d)} pago</li>` +
+      `<li>desde ${dmy(billing.first_day)}: <b>${cv(billing.gross_all)}</b> a preço de tabela · ${cv(billing.net_all)} pago</li>` +
+      "</ul>" +
+      `<div class="fine">Fatura real do Google Cloud (Cloud Run <i>cameratopo</i>, com a saída de dados), ` +
+      `dados até ${dmy(billing.last_day)} — o faturamento atrasa ~1 dia. "Pago" = depois da franquia grátis.</div>`;
+  } else if (!billing) {
+    coll = `<div class="fine">carregando…</div>`;
+  }
   pop.innerHTML =
-    `<div class="fine">Custo estimado desta sessão pro coletivo (com fator de segurança ×${COST.safety})</div>` +
+    `<div class="fine">Custo pro coletivo · estimativas com fator de segurança ×${COST.safety}</div>` +
     `<div class="big">${brl(total)}</div>` +
+    `<div class="fine">esta sessão (esta aba)</div>` +
     "<ul>" +
-    `<li>${costAcc.n} pedidos ao servidor · ${costAcc.rendered} tiles renderizados · ${costAcc.fromCache} de cache</li>` +
-    `<li>${fmt(costAcc.serverS)} s de instância faturada (${COST.vcpu} vCPU + ${COST.memGib} GiB)</li>` +
-    `<li>${fmt(costAcc.bytes / 1e6)} MB transferidos</li>` +
-    `<li>US$ 1 = R$ ${rate.toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ${fxSource === "PTAX/BCB" ? `(PTAX/BCB, ${fxDate})` : "(câmbio aproximado — BCB indisponível)"}</li>` +
+    `<li>${costAcc.n} pedidos · ${costAcc.rendered} tiles renderizados · ${costAcc.fromCache} de cache</li>` +
+    `<li>${fmt(costAcc.serverS)} s de instância faturada (${COST.vcpu} vCPU + ${COST.memGib} GiB) · ${fmt(costAcc.bytes / 1e6)} MB</li>` +
     "</ul>" +
-    `<div class="fine">Preços de tabela do Cloud Run (São Paulo, por requisição) + Cloudflare Worker/R2, ` +
-    `sem franquias grátis. Earth Engine não incluído. Só esta aba; recarregar zera.</div>`;
+    `<div class="lt">Neste navegador</div>` +
+    "<ul>" +
+    `<li>últimos 7 dias: <b>${est(bt.d7)}</b></li>` +
+    `<li>desde ${dmy(bt.first)}: <b>${est(bt.all)}</b></li>` +
+    "</ul>" +
+    `<div class="lt">Serviço inteiro (todos os usuários)</div>` + coll +
+    `<div class="fine" style="margin-top:6px">US$ 1 = R$ ${rate.toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ` +
+    `${fxSource === "PTAX/BCB" ? `(PTAX/BCB, ${dmy(fxDate)})` : "(câmbio aproximado — BCB indisponível)"}. ` +
+    `Estimativas: preços de tabela do Cloud Run (São Paulo, por requisição) + Cloudflare Worker/R2, ` +
+    `sem franquias grátis. Earth Engine e custos compartilhados do projeto não incluídos.</div>`;
 }
 map.addControl(new (L.Control.extend({
   options: { position: "bottomleft" },
@@ -2590,6 +2656,7 @@ map.addControl(new (L.Control.extend({
     L.DomEvent.on(b, "click", () => {
       const pop = document.getElementById("cost-pop");
       pop.hidden = !pop.hidden;
+      if (!pop.hidden) loadBilling();
       renderCost();
     });
     return b;

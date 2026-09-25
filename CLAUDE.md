@@ -181,7 +181,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   navegador precifica cada PerformanceResourceTiming ×3 (segurança), em R$
   pela PTAX de venda do BCB (`/fx`, cache 6 h). `COST.vcpu/memGib` do
   index.html = flags `--cpu/--memory` do deploy — mudar JUNTO; preços de
-  tabela Tier 2 (southamerica-east1) do Cloud Billing Catalog.
+  tabela Tier 2 (southamerica-east1) do Cloud Billing Catalog. Acumulado por
+  navegador em localStorage (`cameratopo-cost-v1`, USD cru por dia). Serviço
+  inteiro = FATURA real via `/costs` (BigQuery `billing_export`, recurso Cloud
+  Run `cameratopo`, cache 6 h) — a SA precisa de `roles/bigquery.jobUser` no
+  projeto + leitura (READER) no dataset `billing_export`; sem isso a UI mostra
+  "indisponível".
 - **Capacidade: `--max-instances 10`.** Com 4 × concurrency 40 = 160 pedidos
   em voo, uma única vista retina em z7 (~144 tiles lentos de mosaico) batia o
   teto e o Cloud Run respondia **429** (10–21% dos tiles nos logs). Sem
