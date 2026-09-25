@@ -78,14 +78,25 @@ os.environ.setdefault("VSI_CACHE", "TRUE")
 # pedidos em voo dá a cada pedido a sua fatia; a soma das fatias = tempo
 # faturado exato (fora cold start e o arredondamento de 100 ms).
 _TIMED = ("/field/", "/terrain/", "/ee/", "/stats", "/fx", "/costs", "/health")
-_busy = {"n": 0, "v": 0.0, "t": time.monotonic()}
+_busy = {"n": 0, "v": 0.0, "t": time.monotonic(), "busy": 0.0,
+         "log_t": time.monotonic(), "busy_logged": 0.0}
 _busy_lock = threading.Lock()
+# Auditoria do estimador: a cada ~60 s a instância loga o tempo OCUPADO (≥ 1
+# pedido em voo) — exatamente a soma das parcelas `app` que os navegadores
+# somam — pra comparar com o billable_instance_time do Cloud Run (a verdade da
+# fatura). JSON numa linha no stdout = jsonPayload no Cloud Logging.
+_REVISION = os.environ.get("K_REVISION", "local")
 
 
 def _busy_advance(now):
     if _busy["n"] > 0:
         _busy["v"] += (now - _busy["t"]) / _busy["n"]
+        _busy["busy"] += now - _busy["t"]
     _busy["t"] = now
+    if now - _busy["log_t"] >= 60:
+        print(json.dumps({"message": "cameratopo busy", "busy_s": round(_busy["busy"] - _busy["busy_logged"], 3),
+                          "window_s": round(now - _busy["log_t"], 1), "revision": _REVISION}), flush=True)
+        _busy["busy_logged"], _busy["log_t"] = _busy["busy"], now
 
 
 @app.before_request
