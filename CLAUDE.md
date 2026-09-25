@@ -111,7 +111,8 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   de câmera (segurar = rAF com taxa/s: mover relativo ao bearing; girar e
   inclinar em PRIMEIRA PESSOA — `lookAround` mantém a câmera no mesmo x-y-z,
   centro recolocado na nova linha de visada e corrigido pelo erro medido
-  contra uma âncora do toque, sem deriva; o arrasto do mouse segue orbitando; altitude move a câmera na VERTICAL deslocando a altura do centro
+  contra uma âncora do toque, sem deriva; o arrasto do mouse segue orbitando;
+  teclado W/S A/D Q/Z E/C 1/3 por `e.code`, ações combináveis num Set; altitude move a câmera na VERTICAL deslocando a altura do centro
   — `centerLift` — zoom aproximava do centro). Inclinação 0–90°: centro LIVRE
   (`centerClampedToGround: false`) + `transformCameraUpdate:
   keepCameraAboveGround` (altura do centro = máx(chão do centro + centerLift,

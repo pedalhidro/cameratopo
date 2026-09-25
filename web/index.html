@@ -470,16 +470,16 @@
 <div id="map3d" hidden></div>
 <div id="ctl3d">
   <div class="pad3d" role="group" aria-label="Câmera 3D">
-    <button type="button" data-cam="rotL" title="Girar à esquerda" aria-label="Girar à esquerda">↺</button>
-    <button type="button" data-cam="fwd" title="Avançar" aria-label="Avançar">▲</button>
-    <button type="button" data-cam="rotR" title="Girar à direita" aria-label="Girar à direita">↻</button>
-    <button type="button" data-cam="tiltUp" title="Inclinar pro horizonte" aria-label="Inclinar pro horizonte">⤴</button>
-    <button type="button" data-cam="up" title="Subir (altitude)" aria-label="Subir">⇧</button>
-    <button type="button" data-cam="left" title="Deslizar à esquerda" aria-label="Deslizar à esquerda">◀</button>
-    <button type="button" data-cam="back" title="Recuar" aria-label="Recuar">▼</button>
-    <button type="button" data-cam="right" title="Deslizar à direita" aria-label="Deslizar à direita">▶</button>
-    <button type="button" data-cam="tiltDown" title="Olhar mais de cima" aria-label="Olhar mais de cima">⤵</button>
-    <button type="button" data-cam="down" title="Descer (altitude)" aria-label="Descer">⇩</button>
+    <button type="button" data-cam="rotL" title="Girar à esquerda (1)" aria-label="Girar à esquerda">↺</button>
+    <button type="button" data-cam="fwd" title="Avançar (W)" aria-label="Avançar">▲</button>
+    <button type="button" data-cam="rotR" title="Girar à direita (3)" aria-label="Girar à direita">↻</button>
+    <button type="button" data-cam="tiltUp" title="Inclinar pro horizonte (E)" aria-label="Inclinar pro horizonte">⤴</button>
+    <button type="button" data-cam="up" title="Subir (altitude) (Q)" aria-label="Subir">⇧</button>
+    <button type="button" data-cam="left" title="Deslizar à esquerda (A)" aria-label="Deslizar à esquerda">◀</button>
+    <button type="button" data-cam="back" title="Recuar (S)" aria-label="Recuar">▼</button>
+    <button type="button" data-cam="right" title="Deslizar à direita (D)" aria-label="Deslizar à direita">▶</button>
+    <button type="button" data-cam="tiltDown" title="Olhar mais de cima (C)" aria-label="Olhar mais de cima">⤵</button>
+    <button type="button" data-cam="down" title="Descer (altitude) (Z)" aria-label="Descer">⇩</button>
   </div>
   <div class="pad3d-cap"><span>mover · girar</span><span>incl.</span><span>alt.</span></div>
   <label for="ex3d">Exagero vertical <span id="ex3d-val">×1.5</span></label>
@@ -614,7 +614,9 @@
         Ctrl + arrastar; no celular, dois dedos pra cima/baixo) pra inclinar e
         girar; o painel no canto inferior direito tem um <b>pad de câmera</b>
         (segure: ▲▼◀▶ avança/recua/desliza na direção em que você olha, ↺↻
-        gira, ⤴⤵ inclina, ⇧⇩ sobe/desce) e ajusta o <b>exagero
+        gira, ⤴⤵ inclina, ⇧⇩ sobe/desce — girar e inclinar sem sair do lugar).
+        Teclado: <b>W/S</b> frente/trás, <b>A/D</b> lados, <b>Q/Z</b> sobe/desce,
+        <b>E/C</b> inclina, <b>1/3</b> gira (dá pra combinar, ex. W+E) e ajusta o <b>exagero
         vertical</b> e o <b>campo de visão</b> (estreito achata a perspectiva,
         como uma teleobjetiva; largo exagera a profundidade). Os desenhos ficam só no 2D. <b>👁</b> é o modo imersivo: esconde
         todos os controles (só o olho fica, mesclado ao mapa); toque de novo
@@ -2382,7 +2384,7 @@ async function set3d(on) {
     if (busy3d) { busy3d = false; updateProgress(); }
   });
   map3d.on("moveend", () => {   // Leaflet acompanha (hash, auto, busca)
-    if (camHeld) return;        // pad segurado: jumpTo a cada quadro — sincroniza ao soltar
+    if (camHeldSet.size) return;   // pad/tecla segurada: jumpTo a cada quadro — sincroniza ao soltar
     const m = map3d.getCenter();
     P.pitch = map3d.getPitch();
     sync3dGuard = true;
@@ -2409,13 +2411,29 @@ const CAM_RATE = {
   up: { alt: 0.8 }, down: { alt: -0.8 },                   // dobras de altura/s
 };
 const CAM_PAN_FRAC = 0.45;   // fração da largura da tela por segundo
-let camHeld = null, camRaf = 0, camLast = 0;
+// Ações SEGURADAS (pad e teclado juntos): várias ao mesmo tempo — W+E anda e
+// inclina, W+D anda na diagonal. Movimento primeiro; se houve, a âncora do
+// olhar é retomada no quadro (senão o lookAround puxaria de volta).
+const camHeldSet = new Set();
+let camRaf = 0, camLast = 0;
 function camStep(now) {
-  if (!camHeld || !map3d) { camRaf = 0; return; }
+  if (!camHeldSet.size || !map3d) { camRaf = 0; return; }
   // dt real (≥0; teto 0,25 s): em GPU lenta/poucos fps a velocidade por
   // segundo se mantém — com teto baixo o giro/altitude "emperravam"
   const dt = Math.max(0, Math.min(0.25, (now - camLast) / 1000)); camLast = now;
-  const r = CAM_RATE[camHeld];
+  let moved = false, dPitch = 0, dBearing = 0;
+  for (const k of camHeldSet) {
+    const r = CAM_RATE[k];
+    if (r.pan || r.alt) { camMove(r, dt); moved = true; }
+    else { dPitch += (r.pitch || 0) * dt; dBearing += (r.bearing || 0) * dt; }
+  }
+  if (dPitch || dBearing) {
+    if (moved) lookAnchor = null;
+    lookAround(dPitch, dBearing);
+  }
+  camRaf = requestAnimationFrame(camStep);
+}
+function camMove(r, dt) {
   if (r.pan) {
     const v = map3d.getCanvas().clientWidth * CAM_PAN_FRAC * dt;
     map3d.panBy([r.pan[0] * v, r.pan[1] * v], { duration: 0 });
@@ -2429,10 +2447,7 @@ function camStep(now) {
     const groundCenter = T ? T.getElevationForLngLatZoom(tr.center, tr.zoom) : 0;
     centerLift = tr.elevation + dh - groundCenter;   // o lift EFETIVO (já com a folga do hook)
     map3d.jumpTo({ elevation: tr.elevation + dh });
-  } else {
-    lookAround(r.pitch ? r.pitch * dt : 0, r.bearing ? r.bearing * dt : 0);
   }
-  camRaf = requestAnimationFrame(camStep);
 }
 // Girar/inclinar SEM sair do lugar (primeira pessoa): a câmera mantém x-y-z e
 // só a direção do olhar muda. O MapLibre orbita em torno do CENTRO; aqui o
@@ -2475,25 +2490,48 @@ function lookAround(dPitch, dBearing) {
     center[0] -= got.lng - cam.lng; center[1] -= got.lat - cam.lat; elevation -= gotAlt - alt;
   }
 }
-function camStop() {
-  lookAnchor = null;
-  if (!camHeld) return;
-  document.querySelector(`.pad3d button[data-cam="${camHeld}"]`)?.classList.remove("on");
-  camHeld = null;
-  if (map3d) map3d.fire("moveend");   // sincroniza o Leaflet/hash uma vez
+const padBtn = (k) => document.querySelector(`.pad3d button[data-cam="${k}"]`);
+function camPress(k) {
+  if (!map3d || camHeldSet.has(k)) return;
+  camHeldSet.add(k);
+  padBtn(k)?.classList.add("on");   // o botão acende também pela tecla
+  if (!camRaf) { camLast = performance.now(); camRaf = requestAnimationFrame(camStep); }
 }
+function camRelease(k) {
+  if (!camHeldSet.delete(k)) return;
+  padBtn(k)?.classList.remove("on");
+  lookAnchor = null;
+  if (!camHeldSet.size && map3d) map3d.fire("moveend");   // sincroniza o Leaflet/hash uma vez
+}
+function camStop() { for (const k of [...camHeldSet]) camRelease(k); }
 document.querySelectorAll(".pad3d button").forEach((b) => {
   b.addEventListener("pointerdown", (e) => {
     if (!map3d) return;
     e.preventDefault();
     b.setPointerCapture(e.pointerId);
-    camHeld = b.dataset.cam; b.classList.add("on");
-    camLast = performance.now();
-    if (!camRaf) camRaf = requestAnimationFrame(camStep);
+    camPress(b.dataset.cam);
   });
-  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, camStop);
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"])
+    b.addEventListener(ev, () => camRelease(b.dataset.cam));
 });
 window.addEventListener("blur", camStop);
+// Teclado (só no 3D): W/S frente/trás · A/D lados · Q/Z sobe/desce · E/C
+// inclina · 1/3 gira. Por POSIÇÃO física (e.code) — mesmas teclas no ABNT2 e no
+// US. Ignora quando digitando num campo ou com Ctrl/⌘/Alt (atalhos do navegador).
+const CAM_KEYS = {
+  KeyW: "fwd", KeyS: "back", KeyA: "left", KeyD: "right", KeyQ: "up", KeyZ: "down",
+  KeyE: "tiltUp", KeyC: "tiltDown", Digit1: "rotL", Numpad1: "rotL", Digit3: "rotR", Numpad3: "rotR",
+};
+function typingIn(el) {
+  return el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+}
+document.addEventListener("keydown", (e) => {
+  const k = CAM_KEYS[e.code];
+  if (!k || !map3d || e.ctrlKey || e.metaKey || e.altKey || typingIn(e.target)) return;
+  e.preventDefault();
+  if (!e.repeat) camPress(k);
+});
+document.addEventListener("keyup", (e) => { const k = CAM_KEYS[e.code]; if (k) camRelease(k); });
 
 // Movimento vindo do Leaflet (busca, 📍, link colado) → câmera 3D.
 map.on("moveend", () => {
