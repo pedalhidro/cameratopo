@@ -109,7 +109,11 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   index.html andam JUNTOS; `TERRAIN_MAXZOOM` idem. Controles: exagero
   vertical e campo de visão (`setVerticalFieldOfView`), ambos no hash; pad
   de câmera (segurar = rAF com taxa/s: mover relativo ao bearing, girar,
-  inclinar, altitude = zoom). Estilo com `transition: {duration: 0}` + 
+  inclinar; altitude move a câmera na VERTICAL via
+  `calculateCameraOptionsFromCameraLngLatAltRotation` — zoom aproximava do
+  centro). FOV mexe no LOD dos tiles: `applyTileLod` ajusta
+  `setSourceTileLodParams` pra penalidade de tile inclinado ficar = 1 em
+  qualquer FOV (senão 5° pedia tiles 1–2 zooms abaixo = borrado). Estilo com `transition: {duration: 0}` + 
   `freeRtt()` após mudar paint: com terreno as camadas viram textura cacheada
   (RTT) capturada no 1º quadro da transição — a opacidade ficava um passo
   atrasada.

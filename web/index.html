@@ -2229,6 +2229,7 @@ function mountTerrain() {
   });
   map3d.setTerrain({ source: "dem", exaggeration: P.ex });
   terrainDemOn = dem;
+  applyTileLod();
 }
 function applyExaggeration() {
   if (map3dLoaded && map3d.getTerrain()) map3d.setTerrain({ source: "dem", exaggeration: P.ex });
@@ -2237,8 +2238,22 @@ function applyExaggeration() {
 }
 // FOV: estreito = "teleobjetiva" (achata a perspectiva, bom pra ler relevo de
 // longe); largo = grande-angular (exagera a profundidade perto da câmera).
+// Nível de detalhe dos tiles vs FOV: o calculateTileZoom padrão do MapLibre 5
+// (Te(9.314, 3)) multiplica a penalidade de tile inclinado por
+// l = 2·((e−1)/log2(cos(89.25°−fov)/cos(89.25°)) − 1), que é 1,0 no FOV padrão
+// (36,87°) e ~3,7 em 5° — a teleobjetiva pedia tiles 1–2 zooms abaixo e o
+// relevo borrava. Escolher e = 1 + 1,5·log2(…) mantém l = 1 em QUALQUER FOV.
+// setSourceTileLodParams sem id só pega as fontes que já existem → chamado de
+// novo sempre que o sync3dLayers/mountTerrain adiciona fonte.
+function applyTileLod() {
+  if (!map3d || !map3d.setSourceTileLodParams) return;
+  const rad = (d) => (d * Math.PI) / 180;
+  const e = 1 + 1.5 * Math.log2(Math.cos(rad(89.25 - P.fov)) / Math.cos(rad(89.25)));
+  map3d.setSourceTileLodParams(Math.max(1, e), 3);
+}
 function applyFov() {
   if (map3d && map3d.setVerticalFieldOfView) map3d.setVerticalFieldOfView(P.fov);
+  applyTileLod();
   $("fov3d").value = String(P.fov);
   $("fov3d-val").textContent = `${Math.round(P.fov)}°`;
 }
@@ -2271,6 +2286,7 @@ function sync3dLayers() {
   // opaco, 100% → transparente). Descarta as texturas e repinta. API interna
   // do MapLibre 5.x (terrain.tileManager.freeRtt) — daí o optional chaining.
   map3d.terrain?.tileManager?.freeRtt?.();
+  applyTileLod();   // fontes novas nascem com o LOD padrão
   map3d.triggerRepaint();
 }
 async function set3d(on) {
@@ -2337,14 +2353,16 @@ async function set3d(on) {
 }
 // ── Pad da câmera 3D: segurar = mover contínuo (rAF, taxa por segundo) ──────
 // Avançar/recuar/deslizar são RELATIVOS à direção da câmera (panBy em px de
-// tela, escalado pela largura → mesma sensação em qualquer zoom); altitude =
-// zoom (é o que muda a altura da câmera no MapLibre). Teclado: o MapLibre já
+// tela, escalado pela largura → mesma sensação em qualquer zoom). Altitude
+// move a câmera na VERTICAL: mesma posição no chão, mesma inclinação/rumo, só
+// a altura acima do terreno escala (×2^taxa por s) — antes era zoom, que no
+// MapLibre aproxima a câmera DO CENTRO ao longo da linha de visada. Teclado: o MapLibre já
 // tem setas (mover), Shift+setas (girar/inclinar) e +/− com o mapa focado.
 const CAM_RATE = {
   fwd: { pan: [0, -1] }, back: { pan: [0, 1] }, left: { pan: [-1, 0] }, right: { pan: [1, 0] },
   rotL: { bearing: -60 }, rotR: { bearing: 60 },           // °/s
   tiltUp: { pitch: 30 }, tiltDown: { pitch: -30 },         // °/s
-  up: { zoom: -0.8 }, down: { zoom: 0.8 },                 // níveis de zoom/s
+  up: { alt: 0.8 }, down: { alt: -0.8 },                   // dobras de altura/s
 };
 const CAM_PAN_FRAC = 0.45;   // fração da largura da tela por segundo
 let camHeld = null, camRaf = 0, camLast = 0;
@@ -2357,11 +2375,18 @@ function camStep(now) {
   if (r.pan) {
     const v = map3d.getCanvas().clientWidth * CAM_PAN_FRAC * dt;
     map3d.panBy([r.pan[0] * v, r.pan[1] * v], { duration: 0 });
+  } else if (r.alt) {
+    const tr = map3d.transform, cam = tr.getCameraLngLat(), alt = tr.getCameraAltitude();
+    const ground = (map3d.queryTerrainElevation && map3d.queryTerrainElevation(cam)) || 0;
+    const above = Math.max(50, (alt - ground) * 2 ** (r.alt * dt));   // nunca abaixo de 50 m do chão
+    // roll explícito: sem ele a função devolve roll undefined e o jumpTo quebra
+    const o = map3d.calculateCameraOptionsFromCameraLngLatAltRotation(
+      cam, ground + above, map3d.getBearing(), map3d.getPitch(), map3d.getRoll ? map3d.getRoll() : 0);
+    if (o && o.zoom >= 1 && o.zoom <= 22) map3d.jumpTo(o);
   } else {
     const o = {};
     if (r.bearing) o.bearing = map3d.getBearing() + r.bearing * dt;
     if (r.pitch) o.pitch = Math.min(map3d.getMaxPitch(), Math.max(0, map3d.getPitch() + r.pitch * dt));
-    if (r.zoom) o.zoom = Math.min(22, Math.max(1, map3d.getZoom() + r.zoom * dt));
     map3d.jumpTo(o);
   }
   camRaf = requestAnimationFrame(camStep);
