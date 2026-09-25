@@ -2393,6 +2393,9 @@ async function set3d(on) {
   });
 }
 // ── Pad da câmera 3D: segurar = mover contínuo (rAF, taxa por segundo) ──────
+// Girar (↺↻) e inclinar (⤴⤵) são em PRIMEIRA PESSOA: a câmera fica no mesmo
+// x-y-z e só o olhar muda (lookAround) — o arrasto do mouse/dedos continua
+// orbitando o centro, como no MapLibre.
 // Avançar/recuar/deslizar são RELATIVOS à direção da câmera (panBy em px de
 // tela, escalado pela largura → mesma sensação em qualquer zoom). Altitude
 // move a câmera na VERTICAL: mesma posição no chão, mesma inclinação/rumo, só
@@ -2427,14 +2430,53 @@ function camStep(now) {
     centerLift = tr.elevation + dh - groundCenter;   // o lift EFETIVO (já com a folga do hook)
     map3d.jumpTo({ elevation: tr.elevation + dh });
   } else {
-    const o = {};
-    if (r.bearing) o.bearing = map3d.getBearing() + r.bearing * dt;
-    if (r.pitch) o.pitch = Math.min(map3d.getMaxPitch(), Math.max(0, map3d.getPitch() + r.pitch * dt));
-    map3d.jumpTo(o);
+    lookAround(r.pitch ? r.pitch * dt : 0, r.bearing ? r.bearing * dt : 0);
   }
   camRaf = requestAnimationFrame(camStep);
 }
+// Girar/inclinar SEM sair do lugar (primeira pessoa): a câmera mantém x-y-z e
+// só a direção do olhar muda. O MapLibre orbita em torno do CENTRO; aqui o
+// centro novo é posto na nova linha de visada, à MESMA distância da câmera
+// (medida pela geometria câmera↔centro: distância horizontal + desnível), e o
+// centerLift é ajustado pro hook de altura não puxá-lo de volta ao chão.
+// A geometria esférica daqui e a de Mercator do MapLibre diferem um tico, e o
+// erro ACUMULAVA (centenas de m num giro longo). Então: a posição do observador
+// é ancorada no início do toque (lookAnchor) e, depois de cada jumpTo, o centro
+// é corrigido pelo erro medido da câmera (2 passadas → sub-métrico, sem deriva).
+let lookAnchor = null;
+function lookAround(dPitch, dBearing) {
+  const tr = map3d.transform, T = map3d.terrain;
+  if (!lookAnchor) {
+    const c0 = tr.getCameraLngLat();
+    lookAnchor = { lng: c0.lng, lat: c0.lat, alt: tr.getCameraAltitude() };
+  }
+  const cam = lookAnchor, alt = lookAnchor.alt;
+  const R = 6371008.8, rad = Math.PI / 180;
+  const c = tr.center;
+  // distância câmera→centro (m): horizontal (equiretangular, curta) + vertical
+  const dx = (c.lng - cam.lng) * rad * R * Math.cos(cam.lat * rad);
+  const dy = (c.lat - cam.lat) * rad * R;
+  const dist = Math.hypot(Math.hypot(dx, dy), alt - tr.elevation);
+  const pitch = Math.min(map3d.getMaxPitch(), Math.max(0, tr.pitch + dPitch));
+  const bearing = tr.bearing + dBearing;
+  const h = dist * Math.sin(pitch * rad), v = dist * Math.cos(pitch * rad);
+  const center = [
+    cam.lng + (h * Math.sin(bearing * rad)) / (R * Math.cos(cam.lat * rad)) / rad,
+    cam.lat + (h * Math.cos(bearing * rad)) / R / rad,
+  ];
+  let elevation = alt - v;
+  const zoom = tr.zoom;
+  for (let pass = 0; pass < 3; pass++) {
+    const ground = T ? T.getElevationForLngLatZoom(new maplibregl.LngLat(center[0], center[1]), zoom) : 0;
+    centerLift = elevation - ground;
+    map3d.jumpTo({ center, elevation, pitch, bearing, zoom });
+    if (pass === 2) break;
+    const got = map3d.transform.getCameraLngLat(), gotAlt = map3d.transform.getCameraAltitude();
+    center[0] -= got.lng - cam.lng; center[1] -= got.lat - cam.lat; elevation -= gotAlt - alt;
+  }
+}
 function camStop() {
+  lookAnchor = null;
   if (!camHeld) return;
   document.querySelector(`.pad3d button[data-cam="${camHeld}"]`)?.classList.remove("on");
   camHeld = null;
