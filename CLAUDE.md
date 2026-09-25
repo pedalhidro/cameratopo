@@ -175,6 +175,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `import rasterio` quebra, o worker do gunicorn nunca sobe e o Cloud Run
   responde 503 em tudo — com o serviço parecendo `Ready` (o master do gunicorn
   passa no probe TCP). Foi a causa do serviço nunca ter servido um tile.
+- **Estimador de custo da UI** (pílula "custo desta sessão ≈ R$"): o servidor
+  carimba tile/API com `Server-Timing: app;dur, at;desc` (after_request) e o
+  navegador precifica cada PerformanceResourceTiming ×2 (segurança), em R$
+  pela PTAX de venda do BCB (`/fx`, cache 6 h). `COST.vcpu/memGib` do
+  index.html = flags `--cpu/--memory` do deploy — mudar JUNTO; preços de
+  tabela Tier 2 (southamerica-east1) do Cloud Billing Catalog.
 - **Capacidade: `--max-instances 10`.** Com 4 × concurrency 40 = 160 pedidos
   em voo, uma única vista retina em z7 (~144 tiles lentos de mosaico) batia o
   teto e o Cloud Run respondia **429** (10–21% dos tiles nos logs). Sem

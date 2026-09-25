@@ -28,11 +28,15 @@ CDN/Cloudflare na frente com a query na chave de cache.
 """
 
 import hashlib
+import json
 import math
 import os
 import socket
+import threading
+import time
+import urllib.request
 
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, g, jsonify, request, send_from_directory
 
 import ee_source
 import osm_overlay
@@ -60,6 +64,104 @@ os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
 os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
 os.environ.setdefault("GDAL_HTTP_MULTIRANGE", "YES")
 os.environ.setdefault("VSI_CACHE", "TRUE")
+
+
+# ── Estimador de custo da UI ────────────────────────────────────────────────
+# Toda resposta de tile/API leva `Server-Timing: app;dur=<ms>, at;desc=<epoch ms>`:
+# a PARCELA deste pedido no tempo faturável da instância e QUANDO foi gerado. O
+# navegador soma (PerformanceResourceTiming.serverTiming) e precifica. `at`
+# denuncia resposta servida de cache de borda (a Cloudflare guarda o header
+# junto): gerada muito antes do pedido → não custou Cloud Run.
+#
+# Parcela, não duração: o Cloud Run (cobrança por requisição) fatura o tempo em
+# que a instância tem ≥1 pedido em voo — com 8 threads, somar as durações
+# contaria o mesmo segundo até 8×. Um "relógio virtual" que anda 1/n com n
+# pedidos em voo dá a cada pedido a sua fatia; a soma das fatias = tempo
+# faturado exato (fora cold start e o arredondamento de 100 ms).
+_TIMED = ("/field/", "/terrain/", "/ee/", "/osm/", "/stats", "/fx", "/health")
+_busy = {"n": 0, "v": 0.0, "t": time.monotonic()}
+_busy_lock = threading.Lock()
+
+
+def _busy_advance(now):
+    if _busy["n"] > 0:
+        _busy["v"] += (now - _busy["t"]) / _busy["n"]
+    _busy["t"] = now
+
+
+@app.before_request
+def _t0():
+    g.t0 = time.perf_counter()
+    with _busy_lock:
+        _busy_advance(time.monotonic())
+        _busy["n"] += 1
+        g.v0 = _busy["v"]
+    g.busy_open = True
+
+
+def _busy_close():
+    """Fecha a conta do pedido (uma vez) e devolve a parcela em segundos."""
+    if not getattr(g, "busy_open", False):
+        return 0.0
+    g.busy_open = False
+    with _busy_lock:
+        _busy_advance(time.monotonic())
+        _busy["n"] -= 1
+        return _busy["v"] - g.v0
+
+
+@app.after_request
+def _server_timing(resp):
+    share = _busy_close()
+    p = request.path
+    if p.endswith(".png") or p.startswith(_TIMED):
+        wall = (time.perf_counter() - getattr(g, "t0", time.perf_counter())) * 1000.0
+        resp.headers["Server-Timing"] = (f'app;dur={share * 1000.0:.1f}, wall;dur={wall:.1f}, '
+                                         f'at;desc="{int(time.time() * 1000)}"')
+    return resp
+
+
+@app.teardown_request
+def _busy_teardown(_exc):
+    _busy_close()   # exceção sem after_request: não deixa o contador preso
+
+
+# Câmbio USD→BRL: PTAX de venda do Banco Central (fonte oficial), buscada no
+# SERVIDOR (a API do BCB não manda CORS) e cacheada FX_TTL_S. Falha → última
+# boa ou FX_FALLBACK (marcado como tal, a UI mostra).
+FX_TTL_S = 6 * 3600
+FX_FALLBACK = float(os.environ.get("CAMERATOPO_FX_FALLBACK") or 5.18)
+_fx = {"usdbrl": None, "date": None, "t": 0.0}
+_fx_lock = threading.Lock()
+
+
+def _fetch_ptax():
+    end = time.strftime("%m-%d-%Y", time.gmtime())
+    ini = time.strftime("%m-%d-%Y", time.gmtime(time.time() - 10 * 86400))  # cobre feriados/fds
+    u = ("https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"
+         "CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)"
+         f"?@dataInicial='{ini}'&@dataFinalCotacao='{end}'"
+         "&$format=json&$orderby=dataHoraCotacao%20desc&$top=1")
+    req = urllib.request.Request(u, headers={"User-Agent": "cameratopo/fx"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        v = json.load(r)["value"][0]
+    return float(v["cotacaoVenda"]), v["dataHoraCotacao"][:10]
+
+
+@app.get("/fx")
+def fx():
+    """USD→BRL (PTAX venda, BCB) pro estimador de custo da UI."""
+    with _fx_lock:
+        if _fx["usdbrl"] is None or time.time() - _fx["t"] > FX_TTL_S:
+            try:
+                _fx["usdbrl"], _fx["date"] = _fetch_ptax()
+                _fx["t"] = time.time()
+            except Exception as exc:  # noqa: BLE001
+                app.logger.warning("PTAX falhou: %s", exc)
+                _fx["t"] = time.time() - FX_TTL_S + 600   # tenta de novo em 10 min
+        if _fx["usdbrl"] is None:
+            return _json_cors({"usdbrl": FX_FALLBACK, "date": None, "source": "fallback"}, 200)
+        return _json_cors({"usdbrl": _fx["usdbrl"], "date": _fx["date"], "source": "PTAX/BCB"}, 200)
 
 
 def _fnum(name):

@@ -279,6 +279,26 @@
     border: 1px solid var(--panel-line); pointer-events: none; white-space: nowrap;
   }
 
+  /* Estimador de custo: pílula ao lado da marca d'água + cartão de detalhes */
+  .ct-cost {
+    order: 10; margin-left: 8px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    font: 600 11px/1.45 inherit; font-variant-numeric: tabular-nums; white-space: nowrap;
+    color: var(--panel-fg); background: var(--panel-bg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line);
+  }
+  #cost-pop {
+    position: absolute; left: 12px; bottom: 44px; z-index: 1100; width: 300px; max-width: calc(100vw - 24px);
+    padding: 10px 12px; border-radius: 12px; font-size: 11.5px; line-height: 1.5;
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow); color: var(--panel-fg);
+  }
+  #cost-pop[hidden] { display: none; }
+  #cost-pop .big { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #cost-pop ul { margin: 6px 0; padding-left: 16px; }
+  #cost-pop .fine { font-size: 10px; color: var(--panel-muted); }
+  body.immersive .ct-cost, body.immersive #cost-pop { display: none; }
+
   /* Modo imersivo (👁): só o mapa + o olho, que vira o INVERSO do que está
      embaixo (mix-blend-mode difference com traço branco, sem fundo). */
   body.immersive #panel-toggle, body.immersive #layers-toggle,
@@ -455,6 +475,7 @@
   <label for="fov3d">Campo de visão <span id="fov3d-val">37°</span></label>
   <input type="range" id="fov3d" min="5" max="80" step="1" value="37" aria-label="Campo de visão do 3D">
 </div>
+<div id="cost-pop" hidden role="dialog" aria-label="Custo estimado desta sessão"></div>
 <div id="load-progress" role="progressbar" aria-label="Carregando tiles" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
   <div class="bar"></div><span class="lbl"></span>
 </div>
@@ -2451,6 +2472,116 @@ window.addEventListener("hashchange", () => {
   if (P.d3 !== !!map3d) set3d(P.d3);
   else if (map3d) { map3d.setPitch(P.pitch); applyExaggeration(); applyFov(); }
 });
+
+// ── Estimador de custo desta sessão (R$) ───────────────────────────────────
+// Quanto ESTA aba custou ao coletivo. O servidor carimba cada resposta de
+// tile/API com `Server-Timing: app;dur=<ms>, at;desc=<epoch ms>` (server.py;
+// `app` = a PARCELA do pedido no tempo faturável da instância, já dividida
+// pelos pedidos simultâneos); aqui cada PerformanceResourceTiming é precificada:
+//   parcela de servidor × (vCPU + GiB do deploy) + tarifa por pedido (Cloud Run +
+//   Worker da Cloudflare) + saída de dados + leituras no R2 (tile renderizado)
+// × COST.safety. Cache do navegador (transferSize 0) = grátis; resposta gerada
+// muito ANTES do pedido = cache de borda da Cloudflare (só o Worker cobra).
+// Preços de TABELA em USD do Cloud Billing Catalog (Cloud Run 152E-C115-5142,
+// southamerica-east1 = Tier 2, cobrança por requisição), lidos em 2026-09-25;
+// sem as franquias grátis (conservador). Earth Engine NÃO entra. Câmbio: /fx
+// (PTAX venda do BCB). Subestima pedido abortado (o servidor renderiza mesmo
+// assim e o navegador não registra) — parte do que o fator 2× cobre.
+const COST = {
+  vcpu: 2, memGib: 1,                 // = deploy (--cpu 2 --memory 1Gi) — mudar JUNTO
+  cpuPerVcpuS: 0.0000336,             // US$/vCPU·s
+  memPerGibS: 0.0000035,              // US$/GiB·s
+  runPerRequest: 0.40e-6,             // US$/pedido Cloud Run
+  cfPerRequest: 0.30e-6,              // US$/pedido Worker (plano pago)
+  r2PerRender: 4 * 0.36e-6,           // ~4 leituras classe B no R2 por tile renderizado
+  egressPerGib: 0.12,                 // US$/GiB internet América do Sul → América do Sul
+  safety: 2,
+};
+const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|osm\/|stats|fx|health)/;
+const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0 };
+let fxRate = null, fxDate = null, fxSource = "", clockSkew = null, costRaf = 0;
+function accountEntry(e) {
+  let u;
+  try { u = new URL(e.name); } catch (err) { return; }
+  if (u.origin !== location.origin || !COST_RE.test(u.pathname)) return;
+  const st = {};
+  for (const t of e.serverTiming || []) st[t.name] = t;
+  const localAt = performance.timeOrigin + e.responseStart;
+  const at = st.at ? Number(st.at.description) : NaN;
+  // JSON (health/stats/fx) nunca vem da borda: calibra o relógio local vs servidor
+  if (Number.isFinite(at) && !u.pathname.endsWith(".png")) {
+    const sk = localAt - at;
+    clockSkew = clockSkew === null ? sk : Math.min(clockSkew, sk);
+  }
+  costAcc.n++;
+  let usd = 0;
+  if (e.transferSize === 0 && e.decodedBodySize > 0) {
+    costAcc.fromCache++;                           // cache do navegador: grátis
+  } else if (!st.app || (Number.isFinite(at) && localAt - at - (clockSkew || 0) > 30000)) {
+    costAcc.fromCache++; usd += COST.cfPerRequest; // borda da Cloudflare
+  } else {
+    const sec = st.app.duration / 1000, bytes = e.transferSize || e.encodedBodySize || 0;
+    usd += sec * (COST.vcpu * COST.cpuPerVcpuS + COST.memGib * COST.memPerGibS)
+         + COST.runPerRequest + COST.cfPerRequest + (bytes / 2 ** 30) * COST.egressPerGib;
+    costAcc.serverS += sec; costAcc.bytes += bytes;
+    // renderizou de verdade (não foi hit do LRU do servidor) → leu o DEM no R2
+    const wall = st.wall ? st.wall.duration : st.app.duration;
+    if (wall > 30 && /^\/(\d|field\/|terrain\/)/.test(u.pathname)) {
+      usd += COST.r2PerRender; costAcc.rendered++;
+    }
+  }
+  costAcc.usd += usd;
+  if (!costRaf) costRaf = requestAnimationFrame(renderCost);
+}
+const brl = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL",
+  minimumFractionDigits: v < 1 ? 4 : 2, maximumFractionDigits: v < 1 ? 4 : 2 });
+function renderCost() {
+  costRaf = 0;
+  const pill = document.getElementById("cost-pill");
+  if (!pill) return;
+  const rate = fxRate || 5.18;
+  const total = costAcc.usd * COST.safety * rate;
+  pill.textContent = `custo desta sessão ≈ ${brl(total)}`;
+  const pop = document.getElementById("cost-pop");
+  if (pop.hidden) return;
+  const fmt = (n, d = 1) => n.toLocaleString("pt-BR", { maximumFractionDigits: d });
+  pop.innerHTML =
+    `<div class="fine">Custo estimado desta sessão pro coletivo (com fator de segurança ×${COST.safety})</div>` +
+    `<div class="big">${brl(total)}</div>` +
+    "<ul>" +
+    `<li>${costAcc.n} pedidos ao servidor · ${costAcc.rendered} tiles renderizados · ${costAcc.fromCache} de cache</li>` +
+    `<li>${fmt(costAcc.serverS)} s de instância faturada (${COST.vcpu} vCPU + ${COST.memGib} GiB)</li>` +
+    `<li>${fmt(costAcc.bytes / 1e6)} MB transferidos</li>` +
+    `<li>US$ 1 = R$ ${rate.toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ${fxSource === "PTAX/BCB" ? `(PTAX/BCB, ${fxDate})` : "(câmbio aproximado — BCB indisponível)"}</li>` +
+    "</ul>" +
+    `<div class="fine">Preços de tabela do Cloud Run (São Paulo, por requisição) + Cloudflare Worker/R2, ` +
+    `sem franquias grátis. Earth Engine não incluído. Só esta aba; recarregar zera.</div>`;
+}
+map.addControl(new (L.Control.extend({
+  options: { position: "bottomleft" },
+  onAdd() {
+    const b = L.DomUtil.create("button", "ct-cost");
+    b.id = "cost-pill"; b.type = "button";
+    b.title = "Custo estimado desta sessão — toque pra detalhes";
+    b.textContent = "custo desta sessão ≈ …";
+    L.DomEvent.disableClickPropagation(b);
+    L.DomEvent.on(b, "click", () => {
+      const pop = document.getElementById("cost-pop");
+      pop.hidden = !pop.hidden;
+      renderCost();
+    });
+    return b;
+  },
+}))());
+if ("PerformanceObserver" in window) {
+  try {
+    new PerformanceObserver((list) => list.getEntries().forEach(accountEntry))
+      .observe({ type: "resource", buffered: true });
+  } catch (e) { /* navegador sem resource timing: a pílula fica em "…" */ }
+}
+fetch("/fx").then((r) => r.json()).then((j) => {
+  fxRate = j.usdbrl; fxDate = j.date; fxSource = j.source; renderCost();
+}).catch(() => {});
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 if (window.innerWidth <= 640) $("panel").classList.add("collapsed");   // começa fechado no celular
