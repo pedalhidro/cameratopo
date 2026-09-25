@@ -220,7 +220,11 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   navegador precifica cada PerformanceResourceTiming ×3 (segurança), em R$
   pela PTAX de venda do BCB (`/fx`, cache 6 h). `COST.vcpu/memGib` do
   index.html = flags `--cpu/--memory` do deploy — mudar JUNTO; preços de
-  tabela Tier 2 (southamerica-east1) do Cloud Billing Catalog. Acumulado por
+  tabela Tier 2 (southamerica-east1) do Cloud Billing Catalog (conferidos
+  contra a fatura). Leituras de DEM: o servidor põe `src;desc="r2|gcs"` no
+  Server-Timing quando RENDERIZA (hit de cache não manda) — `_storage_src`,
+  mesma regra de tier do render — e o navegador precifica ~4 leituras pelo
+  preço de cada armazenamento. Acumulado por
   navegador em localStorage (`cameratopo-cost-v1`, USD cru por dia). Serviço
   inteiro = FATURA real via `/costs` (BigQuery `billing_export`, recurso Cloud
   Run `cameratopo`, cache 6 h) — a SA precisa de `roles/bigquery.jobUser` no

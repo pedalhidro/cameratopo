@@ -126,8 +126,12 @@ def _server_timing(resp):
     p = request.path
     if p.endswith(".png") or p.startswith(_TIMED):
         wall = (time.perf_counter() - getattr(g, "t0", time.perf_counter())) * 1000.0
-        resp.headers["Server-Timing"] = (f'app;dur={share * 1000.0:.1f}, wall;dur={wall:.1f}, '
-                                         f'at;desc="{int(time.time() * 1000)}"')
+        st = (f'app;dur={share * 1000.0:.1f}, wall;dur={wall:.1f}, '
+              f'at;desc="{int(time.time() * 1000)}"')
+        src = getattr(g, "storage_src", None)
+        if src:   # renderizou de verdade e leu DEM deste armazenamento (r2|gcs)
+            st += f', src;desc="{src}"'
+        resp.headers["Server-Timing"] = st
     return resp
 
 
@@ -317,6 +321,18 @@ def _resolve_params(dem):
                 ptl_sd=ptl_sd, ptl_kernel=ptl_kernel)
 
 
+def _storage_src(dem, x, y, z):
+    """De onde um render DESTE tile lê o DEM — pro estimador de custo da UI
+    precificar as leituras (R2 e Cloud Storage cobram diferente). Mesma regra
+    de escolha do render: tier (GCS, bucket telhas) quando cabe, senão o
+    mosaico FABDEM no R2; DEM-SP no GCS; EE não lê armazenamento nosso."""
+    if dem == "ee":
+        return None
+    if dem == "sp":
+        return "gcs"
+    return "gcs" if render.pick_tier(x, y, z, 256) is not None else "r2"
+
+
 def _client_gone():
     """O cliente já desistiu deste pedido? (best-effort, só sob gunicorn)
 
@@ -481,6 +497,7 @@ def tile(z, x, y):
             if dem == "ee":
                 body = ee_source.fetch_tile(z, x, y, p)
             else:
+                g.storage_src = _storage_src(dem, x, y, z)
                 body = render.render_tile(
                     dem, x, y, z,
                     elev_min=p["elev_min"], elev_max=p["elev_max"],
@@ -557,6 +574,7 @@ def field_tile(z, x, y):
         if _client_gone():
             return _gone_response()
         try:
+            g.storage_src = _storage_src(dem, x, y, z)
             body = render.field_tile(dem, x, y, z, max_read=max_read)
         except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
             app.logger.warning("campo %s falhou: %s", key, exc)
@@ -588,6 +606,7 @@ def terrain_tile(z, x, y):
         if _client_gone():
             return _gone_response()
         try:
+            g.storage_src = _storage_src(dem, x, y, z)
             body = render.terrain_tile(dem, x, y, z)
             if body is None:   # oceano OU falha (indistinguíveis) → sem cache
                 return _png_response(render.terrain_flat_png(), etag, max_age=60)

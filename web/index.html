@@ -2836,12 +2836,14 @@ const COST = {
   memPerGibS: 0.0000035,              // US$/GiB·s
   runPerRequest: 0.40e-6,             // US$/pedido Cloud Run
   cfPerRequest: 0.30e-6,              // US$/pedido Worker (plano pago)
-  r2PerRender: 4 * 0.36e-6,           // ~4 leituras classe B no R2 por tile renderizado
+  readsPerRender: 4,                  // ~leituras (range) de DEM por tile renderizado
+  readUsd: { r2: 0.36e-6,             // R2 classe B (FABDEM 30 m)
+             gcs: 0.40e-6 },          // Cloud Storage classe B (tiers 500 m/90 m, DEM-SP) — medido na fatura
   egressPerGib: 0.12,                 // US$/GiB internet América do Sul → América do Sul
   safety: 3,
 };
 const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|stats|fx|costs|health)/;
-const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0 };
+const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0, reads: {} };
 let fxRate = null, fxDate = null, fxSource = "", clockSkew = null, costRaf = 0;
 function accountEntry(e) {
   let u;
@@ -2867,10 +2869,12 @@ function accountEntry(e) {
     usd += sec * (COST.vcpu * COST.cpuPerVcpuS + COST.memGib * COST.memPerGibS)
          + COST.runPerRequest + COST.cfPerRequest + (bytes / 2 ** 30) * COST.egressPerGib;
     costAcc.serverS += sec; costAcc.bytes += bytes;
-    // renderizou de verdade (não foi hit do LRU do servidor) → leu o DEM no R2
-    const wall = st.wall ? st.wall.duration : st.app.duration;
-    if (wall > 30 && /^\/(\d|field\/|terrain\/)/.test(u.pathname)) {
-      usd += COST.r2PerRender; costAcc.rendered++;
+    // renderizou de verdade e leu DEM: o servidor diz DE ONDE (src = r2|gcs —
+    // mosaico FABDEM no R2, tiers e DEM-SP no Cloud Storage; cache/EE não manda)
+    const src = st.src && st.src.description;
+    if (src && COST.readUsd[src] !== undefined) {
+      usd += COST.readsPerRender * COST.readUsd[src];
+      costAcc.rendered++; costAcc.reads[src] = (costAcc.reads[src] || 0) + COST.readsPerRender;
     }
   }
   costAcc.usd += usd;
@@ -2952,6 +2956,7 @@ function renderCost() {
     "<ul>" +
     `<li>${costAcc.n} pedidos · ${costAcc.rendered} tiles renderizados · ${costAcc.fromCache} de cache</li>` +
     `<li>${fmt(costAcc.serverS)} s de instância faturada (${COST.vcpu} vCPU + ${COST.memGib} GiB) · ${fmt(costAcc.bytes / 1e6)} MB</li>` +
+    `<li>~${(costAcc.reads.r2 || 0) + (costAcc.reads.gcs || 0)} leituras de DEM: ${costAcc.reads.r2 || 0} no R2 (FABDEM 30 m) · ${costAcc.reads.gcs || 0} no Cloud Storage (tiers 500 m/90 m, DEM-SP)</li>` +
     "</ul>" +
     `<div class="lt">Neste navegador</div>` +
     "<ul>" +
@@ -2961,7 +2966,7 @@ function renderCost() {
     `<div class="lt">Serviço inteiro (todos os usuários)</div>` + coll +
     `<div class="fine" style="margin-top:6px">US$ 1 = R$ ${rate.toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ` +
     `${fxSource === "PTAX/BCB" ? `(PTAX/BCB, ${dmy(fxDate)})` : "(câmbio aproximado — BCB indisponível)"}. ` +
-    `Estimativas: preços de tabela do Cloud Run (São Paulo, por requisição) + Cloudflare Worker/R2, ` +
+    `Estimativas: preços de tabela do Cloud Run (São Paulo, por requisição) + Cloudflare Worker + leituras no R2/Cloud Storage, ` +
     `sem franquias grátis. Earth Engine e custos compartilhados do projeto não incluídos.</div>`;
 }
 map.addControl(new (L.Control.extend({
