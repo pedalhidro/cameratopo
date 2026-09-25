@@ -114,7 +114,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   contra uma âncora do toque (`pinCamera`), sem deriva; o arrasto do mouse
   segue orbitando; FOV age como LENTE — `applyFov` anota a câmera, muda o FOV
   e `pinCamera` a devolve (o MapLibre recuava/avançava a câmera);
-  teclado W/S A/D Q/Z E/C 1/3 por `e.code`, ações combináveis num Set; altitude move a câmera na VERTICAL deslocando a altura do centro
+  teclado W/S A/D Q/Z E/C 1/3 por `e.code`, ações combináveis num Set;
+  "Velocidade" (`P.spd`, ×0,1–×10, hash `spd`) escala o dt do pad/teclado;
+  modo mouse/FPS (M): Pointer Lock no canvas, deltas acumulados e aplicados
+  1×/quadro via lookAround (observador parado), Leaflet só sincroniza na
+  saída; "no chão" (G): o hook fixa a câmera em chão sob ela + `walkH` (Q/Z
+  mudam walkH), soltar recalcula o centerLift pra ficar onde está; altitude move a câmera na VERTICAL deslocando a altura do centro
   — `centerLift` — zoom aproximava do centro). Inclinação 0–90°: centro LIVRE
   (`centerClampedToGround: false`) + `transformCameraUpdate:
   keepCameraAboveGround` (altura do centro = máx(chão do centro + centerLift,

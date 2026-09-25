@@ -436,6 +436,21 @@
   .pad3d button.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
   .pad3d-cap { display: grid; grid-template-columns: 3fr 6px 1fr 1fr; font-size: 9.5px; color: var(--panel-muted); text-align: center; margin: 2px 0 6px; }
   .pad3d-cap span:first-child { grid-column: 1; } .pad3d-cap span:nth-child(2) { grid-column: 3; }
+  .look-btn {
+    width: 100%; margin: 0 0 6px; padding: 5px 8px; cursor: pointer; border-radius: 8px;
+    border: 1px solid var(--field-line); background: var(--field-bg); color: var(--panel-fg);
+    font: 600 11px/1.3 inherit; text-align: left;
+  }
+  .look-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .look-btn kbd { float: right; font: inherit; opacity: .7; }
+  /* Mira do modo mouse (FPS) — no centro, invertendo o que está atrás */
+  #crosshair {
+    position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+    z-index: 600; pointer-events: none; display: none; mix-blend-mode: difference;
+    background: linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+                linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+  }
+  body.mouselook #crosshair { display: block; }
   body.immersive #ctl3d, body.immersive .maplibregl-ctrl { visibility: hidden; }
   #load-progress .bar {
     height: 100%; width: 0; background: var(--accent);
@@ -472,6 +487,7 @@
 <body>
 <div id="map"></div>
 <div id="map3d" hidden></div>
+<div id="crosshair" aria-hidden="true"></div>
 <div id="ctl3d">
   <div class="pad3d" role="group" aria-label="Câmera 3D">
     <button type="button" data-cam="rotL" title="Girar à esquerda (1)" aria-label="Girar à esquerda">↺</button>
@@ -486,6 +502,12 @@
     <button type="button" data-cam="down" title="Descer (altitude) (Z)" aria-label="Descer">⇩</button>
   </div>
   <div class="pad3d-cap"><span>mover · girar</span><span>incl.</span><span>alt.</span></div>
+  <button type="button" id="btn-mouselook" class="look-btn" aria-pressed="false"
+    title="Olhar com o mouse, como num jogo em 1ª pessoa (M) — Esc sai">🖱 olhar com o mouse <kbd>M</kbd></button>
+  <button type="button" id="btn-walk" class="look-btn" aria-pressed="false"
+    title="Prender o observador ao chão: anda por cima do relevo (G) — Q/Z mudam a altura">🚶 no chão <span id="walk-h"></span><kbd>G</kbd></button>
+  <label for="spd3d">Velocidade <span id="spd3d-val">×1.0</span></label>
+  <input type="range" id="spd3d" min="-1" max="1" step="0.05" value="0" aria-label="Velocidade de movimento do 3D">
   <label for="ex3d">Exagero vertical <span id="ex3d-val">×1.5</span></label>
   <input type="range" id="ex3d" min="1" max="5" step="0.1" value="1.5" aria-label="Exagero vertical do 3D">
   <label for="fov3d">Campo de visão <span id="fov3d-val">37°</span></label>
@@ -620,7 +642,12 @@
         (segure: ▲▼◀▶ avança/recua/desliza na direção em que você olha, ↺↻
         gira, ⤴⤵ inclina, ⇧⇩ sobe/desce — girar e inclinar sem sair do lugar).
         Teclado: <b>W/S</b> frente/trás, <b>A/D</b> lados, <b>Q/Z</b> sobe/desce,
-        <b>E/C</b> inclina, <b>1/3</b> gira (dá pra combinar, ex. W+E) e ajusta o <b>exagero
+        <b>E/C</b> inclina, <b>1/3</b> gira (dá pra combinar, ex. W+E).
+        <b>M</b> (ou 🖱 no painel) liga o <b>modo mouse</b>: o mouse aponta o
+        olhar, como num jogo em 1ª pessoa, e W/A/S/D andam — Esc sai.
+        <b>G</b> (ou 🚶) prende o observador <b>ao chão</b>: ele anda por cima do
+        relevo a 2 m (Q/Z mudam essa altura). O controle
+        <b>Velocidade</b> (×0,1 a ×10) acelera/desacelera o pad e o teclado e ajusta o <b>exagero
         vertical</b> e o <b>campo de visão</b> (estreito achata a perspectiva,
         como uma teleobjetiva; largo exagera a profundidade). Os desenhos ficam só no 2D. <b>👁</b> é o modo imersivo: esconde
         todos os controles (só o olho fica, mesclado ao mapa); toque de novo
@@ -724,6 +751,7 @@ const DEFAULTS = {
   ptlSd: 2.0, ptlKernel: 1000,   // PTL: ±desvios que saturam · diâmetro (m)
   d3: false, pitch: 60, ex: 1.5,  // modo 3D: ligado · inclinação (°) · exagero vertical
   fov: 37,                        // campo de visão vertical do 3D (°; ~36,87 é o default do MapLibre)
+  spd: 1,                         // multiplicador de velocidade do pad/teclado do 3D (×0,1–×10)
 };
 
 // Versão do renderizador (= render.RENDER_VERSION do servidor). Vai na
@@ -826,6 +854,7 @@ function readHash() {
   P.pitch = Math.min(90, Math.max(0, num("pitch", P.pitch)));   // 0 = de cima · 90 = horizonte
   P.ex = Math.min(5, Math.max(1, num("ex", P.ex)));
   P.fov = Math.min(80, Math.max(5, num("fov", P.fov)));
+  P.spd = Math.min(10, Math.max(0.1, num("spd", P.spd)));
 
   // ly= camadas VISÍVEIS, fundo→topo, `id:opacidade%` (relevo sem %, usa op=).
   // Ausente → só o relevo, pilha padrão. As ocultas ficam embaixo na ordem
@@ -878,7 +907,7 @@ function commitHash() {
   q.set("ss", P.ss);
   q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
-  if (P.d3) { q.set("3d", "1"); q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); }
+  if (P.d3) { q.set("3d", "1"); q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); if (P.spd !== 1) q.set("spd", +P.spd.toFixed(2)); }
   // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
   const seq = P.stack.filter((id) => P.lyOn[id])
     .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
@@ -2317,15 +2346,39 @@ function sync3dLayers() {
 // "prender ao chão" desfazia a subida no quadro seguinte.
 const CAM_CLEAR_M = 30;
 let centerLift = 0;
+// "No chão" (🚶, tecla G): a câmera fica GRUDADA no relevo a walkH metros —
+// anda por cima dos morros. Q/Z mudam walkH em vez da altitude livre.
+let walkOn = false, walkH = 2;
+const WALK_MIN_M = 1.5, WALK_MAX_M = 5000;
 function keepCameraAboveGround(tr) {
   const T = map3d && map3d.terrain;
   if (!T) return {};
-  const groundCenter = T.getElevationForLngLatZoom(tr.center, tr.zoom);
   const groundCam = T.getElevationForLngLatZoom(tr.getCameraLngLat(), tr.zoom);
   const above = tr.getCameraAltitude() - tr.elevation;          // = cos(pitch)·distância (m)
+  if (walkOn) {
+    const e = groundCam + walkH - above;
+    return Math.abs(e - tr.elevation) > 0.05 ? { elevation: e } : {};
+  }
+  const groundCenter = T.getElevationForLngLatZoom(tr.center, tr.zoom);
   const e = Math.max(groundCenter + centerLift, groundCam + CAM_CLEAR_M - above);
   return Math.abs(e - tr.elevation) > 0.5 ? { elevation: e } : {};
 }
+function setWalk(on) {
+  if (!map3d) return;
+  walkOn = on;
+  $("btn-walk").setAttribute("aria-pressed", String(on));
+  if (on) {
+    lookAnchor = null;
+    settleCamera();                                   // desce/sobe já pro chão
+    toast(`No chão, a ${fmtWalk()} — Q/Z mudam a altura · G solta`);
+  } else {
+    const T = map3d.terrain, tr = map3d.transform;    // solta onde está
+    centerLift = tr.elevation - (T ? T.getElevationForLngLatZoom(tr.center, tr.zoom) : 0);
+  }
+  syncWalkLabel();
+}
+const fmtWalk = () => (walkH < 1000 ? `${walkH < 10 ? walkH.toFixed(1) : Math.round(walkH)} m` : `${(walkH / 1000).toFixed(1)} km`);
+function syncWalkLabel() { $("walk-h").textContent = walkOn ? `· ${fmtWalk()}` : ""; }
 // O hook só roda em gesto/jumpTo/easeTo — não na criação do mapa nem quando os
 // tiles de terreno chegam e MUDAM o chão sob a câmera. Aplica "na mão" no load e
 // a cada idle, e SÓ se mudar algo (jumpTo vazio geraria move → idle → loop).
@@ -2340,7 +2393,9 @@ async function set3d(on) {
   document.body.classList.toggle("mode3d", on);
   writeHash();
   if (!on) {
-    centerLift = 0;
+    if (document.pointerLockElement) document.exitPointerLock();
+    centerLift = 0; walkOn = false;
+    $("btn-walk").setAttribute("aria-pressed", "false"); syncWalkLabel();
     if (map3d) { map3d.remove(); map3d = null; }
     map3dLoaded = false; tiles3d.clear(); terrainDemOn = null; busy3d = false;
     $("map3d").hidden = true;
@@ -2397,7 +2452,7 @@ async function set3d(on) {
     if (busy3d) { busy3d = false; updateProgress(); }
   });
   map3d.on("moveend", () => {   // Leaflet acompanha (hash, auto, busca)
-    if (camHeldSet.size) return;   // pad/tecla segurada: jumpTo a cada quadro — sincroniza ao soltar
+    if (camHeldSet.size || mouseLookOn()) return;   // pad/tecla/mouse ativo: jumpTo a cada quadro — sincroniza ao soltar
     const m = map3d.getCenter();
     P.pitch = map3d.getPitch();
     sync3dGuard = true;
@@ -2433,7 +2488,7 @@ function camStep(now) {
   if (!camHeldSet.size || !map3d) { camRaf = 0; return; }
   // dt real (≥0; teto 0,25 s): em GPU lenta/poucos fps a velocidade por
   // segundo se mantém — com teto baixo o giro/altitude "emperravam"
-  const dt = Math.max(0, Math.min(0.25, (now - camLast) / 1000)); camLast = now;
+  const dt = Math.max(0, Math.min(0.25, (now - camLast) / 1000)) * P.spd; camLast = now;
   let moved = false, dPitch = 0, dBearing = 0;
   for (const k of camHeldSet) {
     const r = CAM_RATE[k];
@@ -2450,6 +2505,10 @@ function camMove(r, dt) {
   if (r.pan) {
     const v = map3d.getCanvas().clientWidth * CAM_PAN_FRAC * dt;
     map3d.panBy([r.pan[0] * v, r.pan[1] * v], { duration: 0 });
+  } else if (r.alt && walkOn) {
+    // no chão: Q/Z mudam a altura dos olhos acima do relevo (o hook aplica)
+    walkH = Math.min(WALK_MAX_M, Math.max(WALK_MIN_M, walkH * 2 ** (r.alt * dt)));
+    lookAnchor = null; syncWalkLabel(); settleCamera();
   } else if (r.alt) {
     // altura da câmera acima do chão sob ela escala ×2^taxa/s (piso: CAM_CLEAR_M);
     // o Δ vai inteiro pra altura do centro → movimento puramente vertical
@@ -2557,6 +2616,62 @@ document.addEventListener("keydown", (e) => {
   if (!e.repeat) camPress(k);
 });
 document.addEventListener("keyup", (e) => { const k = CAM_KEYS[e.code]; if (k) camRelease(k); });
+
+// ── Modo mouse (FPS): o mouse aponta o olhar ────────────────────────────────
+// Pointer Lock no canvas do 3D: o cursor some e cada movimento vira giro
+// (→ direita) e inclinação (↑ olha pro horizonte) em PRIMEIRA PESSOA — mesmo
+// lookAround/pinCamera do pad, então o observador não sai do lugar; W/A/S/D
+// andam como num jogo. Esc sai (padrão do navegador). Os deltas acumulam e são
+// aplicados 1× por quadro (mouse de 1000 Hz não vira 1000 jumpTo/s); o Leaflet
+// só sincroniza na saída.
+const MOUSE_LOOK_DEG_PER_PX = 0.12;
+let lookAccX = 0, lookAccY = 0, lookRaf = 0;
+function mouseLookOn() { return !!map3d && document.pointerLockElement === map3d.getCanvasContainer(); }
+function toggleMouseLook() {
+  if (!map3d) return;
+  const el = map3d.getCanvasContainer();
+  if (document.pointerLockElement === el) document.exitPointerLock();
+  else if (el.requestPointerLock) {
+    const r = el.requestPointerLock();
+    if (r && r.catch) r.catch(() => toast("Este navegador não deixou travar o mouse."));
+  }
+}
+document.addEventListener("pointerlockchange", () => {
+  const on = mouseLookOn();
+  $("btn-mouselook").setAttribute("aria-pressed", String(on));
+  document.body.classList.toggle("mouselook", on);
+  lookAnchor = null;
+  if (on) toast("Mouse olha em volta · W/A/S/D anda · Esc sai");
+  else if (map3d) map3d.fire("moveend");   // sincroniza Leaflet/hash uma vez
+});
+document.addEventListener("mousemove", (e) => {
+  if (!mouseLookOn()) return;
+  lookAccX += e.movementX; lookAccY += e.movementY;
+  if (!lookRaf) lookRaf = requestAnimationFrame(() => {
+    lookRaf = 0;
+    if (!mouseLookOn()) { lookAccX = lookAccY = 0; return; }
+    const dx = lookAccX, dy = lookAccY; lookAccX = lookAccY = 0;
+    if (camHeldSet.size) lookAnchor = null;   // andando junto: o camStep já moveu
+    lookAround(-dy * MOUSE_LOOK_DEG_PER_PX, dx * MOUSE_LOOK_DEG_PER_PX);
+  });
+});
+$("btn-mouselook").addEventListener("click", toggleMouseLook);
+$("btn-walk").addEventListener("click", () => setWalk(!walkOn));
+document.addEventListener("keydown", (e) => {
+  if (!map3d || e.ctrlKey || e.metaKey || e.altKey || e.repeat || typingIn(e.target)) return;
+  if (e.code === "KeyM") { e.preventDefault(); toggleMouseLook(); }
+  else if (e.code === "KeyG") { e.preventDefault(); setWalk(!walkOn); }
+});
+// Velocidade: escala log (×0,1–×10) de tudo que o pad/teclado faz por segundo
+function applySpeed() {
+  $("spd3d").value = String(Math.log10(P.spd));
+  $("spd3d-val").textContent = `×${P.spd < 1 ? P.spd.toFixed(2) : P.spd.toFixed(1)}`;
+}
+$("spd3d").addEventListener("input", (e) => {
+  P.spd = Math.min(10, Math.max(0.1, 10 ** (parseFloat(e.target.value) || 0)));
+  applySpeed(); writeHash();
+});
+applySpeed();
 
 // Movimento vindo do Leaflet (busca, 📍, link colado) → câmera 3D.
 map.on("moveend", () => {
