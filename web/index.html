@@ -852,7 +852,10 @@ function commitHash() {
   q.set("dem", P.dem);
   q.set("auto", P.auto ? "1" : "0");
   if (!P.auto) { q.set("emin", P.emin); q.set("emax", P.emax); q.set("slope", P.slope); }
-  q.set("gamma", P.gamma); q.set("cycles", P.cycles); q.set("op", P.opacity);
+  q.set("gamma", P.gamma); q.set("cycles", P.cycles);
+  // op só quando difere do padrão: gravado sempre, todo link antigo congelava
+  // o default da época (op=90) e mudar o padrão não chegava a ninguém.
+  if (P.opacity !== DEFAULTS.opacity) q.set("op", P.opacity);
   q.set("ss", P.ss);
   q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
