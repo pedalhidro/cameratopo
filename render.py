@@ -60,7 +60,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "10"
+RENDER_VERSION = "11"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -137,7 +137,7 @@ MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 49)
 _TELHAS_DEM = os.environ.get("CAMERATOPO_TIER_BASE") or "https://storage.googleapis.com/telhas/dem"
 TIERS = [   # do mais grosso pro mais fino; `ready` = arquivos já no bucket
     {"name": "fabdem_500m", "ppd": 240, "file_deg": 90, "origin": (-180.0, 90.0),
-     "extent": (-180.0, -90.0, 180.0, 90.0), "ready": False},   # export do EE em curso
+     "extent": (-180.0, -90.0, 180.0, 90.0), "ready": True},    # mar gravado como 0 (não nodata)
     {"name": "fabdem_90m_sa", "ppd": 1200, "file_deg": 10, "origin": (-90.0, 20.0),
      "extent": (-90.0, -60.0, -30.0, 20.0), "ready": True},
 ]
@@ -673,7 +673,7 @@ def field_tile(dem, x, y, z, tilesize=256, max_read=None):
 # Versão do ENCODING/leitura do terreno — chave de cache/ETag E o `v=` que a UI
 # manda (TERRAIN_VERSION do index.html). Bumpe os DOIS juntos, como o par
 # RENDER/TILE_VERSION (os tiles têm max-age de 7 dias).
-TERRAIN_VERSION = "2"
+TERRAIN_VERSION = "3"
 # Zoom máximo NATIVO do terreno por fonte (acima o MapLibre sobreamplia): ~1 px
 # de tile por célula nativa. FABDEM 30 m → z12 (~35 m/px em SP); DEM-SP 5 m → z15.
 TERRAIN_MAXZOOM = {"fabdem": 12, "sp": 15}
@@ -853,7 +853,7 @@ def _slope_pct_native(dem, bbox, pct=98.0):
 # declividade nativa — exatamente o que está sombreado — (p98). Mar (nodata do
 # tier) fica de fora, como no caminho nativo.
 TIER_STATS_MIN_SPAN_DEG = 1.5     # viewport ≥ isto (~z ≤ 10) → tier
-TIER_STATS_MAX_SPAN_DEG = 60.0    # teto do endpoint quando há tier cobrindo
+TIER_STATS_MAX_SPAN_DEG = 360.0   # com tier: até o globo (500 m lê os menores overviews, ~0,5 s)
 
 
 def stats_tier_for(bbox):
@@ -890,6 +890,9 @@ def _tier_stats(t, bbox, max_size=512):
         return None
     a = img.array
     m = ~np.ma.getmaskarray(a[0])
+    # o tier de 500 m saiu do EE com o mar = 0 (não nodata): fora dos percentis
+    # (senão a faixa auto de toda vista costeira começava em 0 m)
+    m &= ~((np.ma.getdata(a[0]) == 0) & (np.ma.getdata(a[1]) == 0))
     if not m.any():
         return None
     elev = np.ma.getdata(a[0]).astype(np.float64)[m]          # array puro: o np.percentile

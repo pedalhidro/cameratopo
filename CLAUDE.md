@@ -170,8 +170,8 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `Cache-Control` de 7 dias: o ETag sozinho NÃO fura o max-age (o navegador nem
   revalida), então sem o `v=` novo na URL o usuário continua vendo os PNGs
   antigos — inclusive "depois do fix".
-- **Tiers de resolução reduzida** (`TIERS` no render.py, `TIER_ON` — desligado
-  até o export do EE terminar; gerados por
+- **Tiers de resolução reduzida** (`TIERS` no render.py, cada um com `ready`;
+  o de 500 m tem o MAR gravado como 0 — não nodata —, e o /stats o exclui; gerados por
   `tools/export_fabdem_tier.py` no EE → `gs://telhas/dem/<nome>/`, lidos (como o DEM-SP)
   direto de storage.googleapis.com — mesma região do Cloud Run = transferência
   grátis; o EE não exporta pro R2): 500 m
@@ -196,7 +196,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   percentis do tier que desenha esses zooms (`stats_tier_for` → `_tier_stats`:
   banda 1 p5/p80, banda 2 = declividade nativa média p98; mar fora), recortada
   à extensão do tier que cobre ≥ 50% da vista; aí o teto do endpoint sobe de
-  5° pra 60°. Sem tier cobrindo, segue o caminho nativo (≤ 5°). Antes o `/stats`
+  5° pra 360° (o globo em ~0,5 s pelos menores overviews do tier de 500 m). Sem tier cobrindo, segue o caminho nativo (≤ 5°). Antes o `/stats`
   recusava viewport > 5° e o "auto" não funcionava em z ≤ 8.
 - **Guardas de custo público**: mosaico FABDEM tem teto de span/nº de COGs por
   tile (`MOSAIC_MAX_*` → transparente; 6° e 49 COGs = z6 inteiro, z ≤ 5 vazio —
