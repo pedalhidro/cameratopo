@@ -46,8 +46,9 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `cameratopo-ee@` precisa de LEITURA nos assets (compartilhar no Code Editor
   ou `earthengine acl ch -u serviceAccount:…:R <asset>`); sem acesso → tile
   transparente. Local (ADC do dono) sempre funciona.
-- `osm_overlay.py` — camada **Traçado OSM** (`GET /osm/{z}/{x}/{y}.png`, linha
-  "tracado" do painel ⧉): proxy do tile carto padrão do osm.org + extração POR
+- `osm_overlay.py` — **Traçado OSM** (`GET /osm/{z}/{x}/{y}.png`) — REMOVIDO
+  da UI (2026-09-25, pedido do Danilo); o endpoint segue no servidor, sem uso
+  pela página: proxy do tile carto padrão do osm.org + extração POR
   COR (numpy, por pixel — sem vizinhança = sem costura por construção) que
   mantém só vias/ferrovias/água, recoloridas mais escuras/saturadas, resto
   alfa 0 — overlay estilo "touring" do OsmAnd pra pôr por cima do relevo.
@@ -61,7 +62,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   leaflet-rotate, GPL-3.0) e IBM Plex Mono **vendorados** em `web/vendor/`
   (nada de CDN), strings em PT, estado todo no hash da URL, crossfade de
   camadas de tile. Camadas do painel ⧉ com campo `xyz` no catálogo são tiles
-  XYZ diretos, sem EE: o traçado OSM (`/osm/`, do próprio servidor) e os MTPI
+  XYZ diretos, sem EE: os MTPI
   Pindorama 90m/Bacia do Paraná 30m (telhas.pedalhidrografi.co, os mesmos do
   amora — nativos até z10/z12 via `zmax`). É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
   stale-while-revalidate; tiles/stats SÓ rede) + ícones renderizados pelo

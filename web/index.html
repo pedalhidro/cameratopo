@@ -619,9 +619,7 @@
         declives, Posição Topográfica Local, detector de desmorrodouros e rios
         livres (HydroSHEDS) — mais o <b>MTPI</b> (índice de posição topográfica
         multiescala, tiles prontos do amora: Pindorama 90m/COP90 e Bacia do
-        Paraná 30m), o <b>Traçado OSM</b> (só as vias, ferrovias
-        e rios do OpenStreetMap, com o resto transparente: bom por cima do
-        relevo ou do satélite), os mapas base (OpenStreetMap, Satélite,
+        Paraná 30m), os mapas base (OpenStreetMap, Satélite,
         Híbrido) logo abaixo do <b>Relevo</b>, as camadas temáticas no fundo
         (suba com ▲ pra ver por cima) e os seus <i>Desenhos</i> no topo.
         Cada linha tem <b>▲▼</b> (ordem de empilhamento),
@@ -774,7 +772,6 @@ const SS_CHOICES = [256, 512, 1024];
 // `dep` diz de quais params da UI a camada depende (entra na URL do tile);
 // `relevo` é a camada de relevo existente (qualquer fonte), só marcada aqui.
 const EE_LAYER_VERSION = "2";   // = ee_source.EE_LAYERS_VERSION — bump JUNTO
-const OSM_TRACADO_VERSION = "1";   // = osm_overlay.OSM_OVERLAY_VERSION — bump JUNTO
 const EE_LAYERS = [
   // bases (tiles diretos, não-EE) — fundo da pilha
   { id: "osm",      label: "OpenStreetMap", base: "osm",      op: 100 },
@@ -805,12 +802,6 @@ const EE_LAYERS = [
     zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100 },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
-  // traçado OSM: só vias/ferrovias/água, fundo transparente (proxy /osm/ do
-  // servidor — extração por cor do carto; estilo "touring" do OsmAnd). Vive
-  // no topo da pilha de propósito: é overlay pra pôr POR CIMA das outras.
-  { id: "tracado",        label: "Traçado OSM (vias e rios)",
-    xyz: "/osm/{z}/{x}/{y}.png?v=" + OSM_TRACADO_VERSION,
-    zmax: 19, attr: "© OpenStreetMap" },
   // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
   { id: "desenhos",       label: "Desenhos",                         draw: true, op: 100 },
 ];
@@ -818,7 +809,7 @@ const EE_LAYERS = [
 // Híbrido) → relevo → rios, traçado, desenhos. As bases ficam logo abaixo do
 // relevo; as temáticas, no fundo (aparecem ao subir com ▲ ou tirar o que está
 // por cima). (O catálogo acima segue na ordem do app GEE; a pilha é montada daqui.)
-const TOP_OVERLAYS = ["rios", "tracado", "desenhos"];
+const TOP_OVERLAYS = ["rios", "desenhos"];
 const DEFAULT_STACK = [
   ...EE_LAYERS.filter((l) => !l.base && !l.relief && !TOP_OVERLAYS.includes(l.id)).map((l) => l.id),
   ...EE_LAYERS.filter((l) => l.base).map((l) => l.id),
