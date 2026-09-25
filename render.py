@@ -56,7 +56,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "7"
+RENDER_VERSION = "8"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -107,7 +107,11 @@ SLOPE_WIN_PX = int(os.environ.get("CAMERATOPO_SLOPE_WIN_PX") or 384)
 # precisa de guarda — só o mosaico FABDEM. Acima do span/contagem, o tile sai
 # transparente (o cliente simplesmente não mostra relevo tão afastado).
 MOSAIC_MAX_SPAN_DEG = float(os.environ.get("CAMERATOPO_MOSAIC_MAX_SPAN") or 6.0)
-MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 40)
+# 49 = 7×7: cobre QUALQUER tile de z6 (≤ 5,6° de lado). Com 40, os tiles de z6
+# que tocavam 7×7 COGs saíam vazios e z6 (e z5 em retina) virava um xadrez de
+# buracos. Medido: tile z6 de 42 COGs ≈ 3,5 s; z6 inteiro são só 4096 tiles, e a
+# CDN guarda. z ≤ 5 continua vazio (≥ 11° de lado, ~130 COGs) — a UI avisa.
+MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 49)
 
 # Paleta cmocean.phase (17 âncoras RGB), idêntica à CMO_PHASE do app.js. É
 # cíclica (primeira == última âncora), então repetir N ciclos não emenda.

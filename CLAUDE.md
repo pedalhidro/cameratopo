@@ -160,7 +160,8 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   revalida), então sem o `v=` novo na URL o usuário continua vendo os PNGs
   antigos — inclusive "depois do fix".
 - **Guardas de custo público**: mosaico FABDEM tem teto de span/nº de COGs por
-  tile (`MOSAIC_MAX_*` → transparente); `/stats` tem `STATS_MAX_SPAN_DEG`;
+  tile (`MOSAIC_MAX_*` → transparente; 6° e 49 COGs = z6 inteiro, z ≤ 5 vazio —
+  a UI avisa e a prévia não desce abaixo de `PREVIEW_MIN_Z`); `/stats` tem `STATS_MAX_SPAN_DEG`;
   `ss` clampa em `SS_HARD_MAX`. Parse de query defensivo (`math.isfinite` —
   `cycles=1e999` já derrubou com OverflowError, que `except ValueError` NÃO
   pega).
@@ -177,7 +178,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   passa no probe TCP). Foi a causa do serviço nunca ter servido um tile.
 - **Estimador de custo da UI** (pílula "custo desta sessão ≈ R$"): o servidor
   carimba tile/API com `Server-Timing: app;dur, at;desc` (after_request) e o
-  navegador precifica cada PerformanceResourceTiming ×2 (segurança), em R$
+  navegador precifica cada PerformanceResourceTiming ×3 (segurança), em R$
   pela PTAX de venda do BCB (`/fx`, cache 6 h). `COST.vcpu/memGib` do
   index.html = flags `--cpu/--memory` do deploy — mudar JUNTO; preços de
   tabela Tier 2 (southamerica-east1) do Cloud Billing Catalog.

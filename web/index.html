@@ -279,6 +279,16 @@
     border: 1px solid var(--panel-line); pointer-events: none; white-space: nowrap;
   }
 
+  /* Aviso de zoom baixo sem relevo (FABDEM tem piso de zoom no servidor) */
+  #zoom-hint {
+    position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); z-index: 1001;
+    max-width: calc(100vw - 24px); padding: 6px 12px; border-radius: 999px; text-align: center;
+    font-size: 11.5px; background: var(--panel-bg); color: var(--panel-fg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow); pointer-events: none;
+  }
+  #zoom-hint[hidden] { display: none; }
+  body.immersive #zoom-hint { display: none; }
   /* Estimador de custo: pílula ao lado da marca d'água + cartão de detalhes */
   .ct-cost {
     order: 10; margin-left: 8px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
@@ -475,6 +485,7 @@
   <label for="fov3d">Campo de visão <span id="fov3d-val">37°</span></label>
   <input type="range" id="fov3d" min="5" max="80" step="1" value="37" aria-label="Campo de visão do 3D">
 </div>
+<div id="zoom-hint" hidden>FABDEM aparece a partir do zoom 6 — aproxime, ou use <b>FABDEM · GEE</b> (Earth Engine, qualquer zoom)</div>
 <div id="cost-pop" hidden role="dialog" aria-label="Custo estimado desta sessão"></div>
 <div id="load-progress" role="progressbar" aria-label="Carregando tiles" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
   <div class="bar"></div><span class="lbl"></span>
@@ -712,7 +723,7 @@ const DEFAULTS = {
 // então SEM URL nova o navegador/CDN seguem servindo PNGs antigos depois de uma
 // mudança na matemática do render (nem reiniciar o servidor resolve — dentro do
 // max-age o navegador nem revalida o ETag). Bumpe junto com o RENDER_VERSION.
-const TILE_VERSION = "7";
+const TILE_VERSION = "8";
 
 // Superamostragem: px lidos por lado no zoom afastado (query `ss` do tile). Mais
 // = declividade computada mais perto da resolução nativa do DEM (mais textura,
@@ -1253,7 +1264,7 @@ document.addEventListener("visibilitychange", () => {
 // conta na barra (é o tapa-buraco, não o objetivo). Dois cuidados:
 //  • o deslocamento é relativo ao zoom que o relevo PEDE (retina pede z+1) e
 //    nunca desce abaixo de PREVIEW_MIN_Z da fonte: o mosaico FABDEM tem teto
-//    de span/nº de COGs (render.MOSAIC_MAX_*) e z ≤ 6 sai VAZIO — em z7 a
+//    de span/nº de COGs (render.MOSAIC_MAX_*) e z ≤ 5 sai VAZIO — em z7 a
 //    prévia pedia z5 e não mostrava nada. Onde não cabe 1 zoom abaixo, sem
 //    prévia. Muda com o zoom → a camada é recriada (tileSize/zoomOffset fixos).
 //  • PORTEIRA: os tiles cheios só saem depois que a prévia do lote chegou (ou
@@ -1261,7 +1272,7 @@ document.addEventListener("visibilitychange", () => {
 //    fila do servidor (o dev server do Flask roda TODOS em paralelo) e chegava
 //    junto com eles, sem servir pra nada.
 const PREVIEW_ZOFF = 2, PREVIEW_GATE_MS = 2500;
-const PREVIEW_MIN_Z = { fabdem: 7, sp: 0, ee: 0 };
+const PREVIEW_MIN_Z = { fabdem: 6, sp: 0, ee: 0 };   // = zoom mínimo com relevo (render.MOSAIC_MAX_*)
 const RETINA = L.Browser.retina ? 1 : 0;   // o relevo usa detectRetina
 function previewOffset() {
   const z = Math.min(Math.round(map.getZoom()), RELIEF_MAX_NATIVE) + RETINA;  // zoom pedido
@@ -1309,7 +1320,14 @@ function ensurePreview(url = reliefUrl()) {
   if (!preview) preview = makePreview(url, d).addTo(map);
   else if (preview._url !== url) preview.setUrl(url);
 }
-map.on("zoomend", () => ensurePreview());
+map.on("zoomend", () => { ensurePreview(); syncZoomHint(); });
+// Abaixo do piso do FABDEM o servidor devolve tile vazio (guarda de custo do
+// mosaico) — sem aviso parecia "tiles que não carregaram".
+function syncZoomHint() {
+  const z = Math.round(map.getZoom()) + RETINA;   // zoom que o relevo PEDE
+  document.getElementById("zoom-hint").hidden =
+    !(P.dem === "fabdem" && P.lyOn.relevo && z < PREVIEW_MIN_Z.fabdem);
+}
 function setPreviewShown(on) {
   if (on === previewShown) return;
   previewShown = on;
@@ -1455,6 +1473,7 @@ function syncEeLayers() {
     }
   }
   if (in3d) sync3dLayers();   // no 3D as mesmas camadas vivem no MapLibre
+  if (typeof syncZoomHint === "function") syncZoomHint();   // relevo ligado/desligado
 }
 
 // Painel ⧉ — linhas TOPO → FUNDO (como no amora): ▲▼ · ligar · nome · opacidade
@@ -1678,7 +1697,7 @@ $("ptl-k").addEventListener("input", onPtl);
 $("seg-dem").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.dem === P.dem) return;
-  P.dem = b.dataset.dem; lastAutoKey = "";
+  P.dem = b.dataset.dem; lastAutoKey = ""; syncZoomHint();
   if (P.auto) {                       // nova fonte → re-estima a faixa
     autoResolved = false; syncInputs(); updateLegend(); refreshTiles(); runAutoEstimate();
   } else {
@@ -2498,7 +2517,7 @@ const COST = {
   cfPerRequest: 0.30e-6,              // US$/pedido Worker (plano pago)
   r2PerRender: 4 * 0.36e-6,           // ~4 leituras classe B no R2 por tile renderizado
   egressPerGib: 0.12,                 // US$/GiB internet América do Sul → América do Sul
-  safety: 2,
+  safety: 3,
 };
 const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|osm\/|stats|fx|health)/;
 const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0 };
@@ -2597,6 +2616,7 @@ map.addControl(new (L.Control.extend({
 rebuildLayersPanel(); syncEeLayers();   // camadas ⧉ do hash (se houver)
 syncInputs(); updateLegend();
 if (P.d3) set3d(true);           // link aberto já em 3D
+syncZoomHint();
 checkServerAwake();              // cold start → avisa na barra
 if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
 
