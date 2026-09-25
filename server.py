@@ -39,7 +39,6 @@ import urllib.request
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 
 import ee_source
-import osm_overlay
 import render
 
 app = Flask(__name__)
@@ -78,7 +77,7 @@ os.environ.setdefault("VSI_CACHE", "TRUE")
 # contaria o mesmo segundo até 8×. Um "relógio virtual" que anda 1/n com n
 # pedidos em voo dá a cada pedido a sua fatia; a soma das fatias = tempo
 # faturado exato (fora cold start e o arredondamento de 100 ms).
-_TIMED = ("/field/", "/terrain/", "/ee/", "/osm/", "/stats", "/fx", "/costs", "/health")
+_TIMED = ("/field/", "/terrain/", "/ee/", "/stats", "/fx", "/costs", "/health")
 _busy = {"n": 0, "v": 0.0, "t": time.monotonic()}
 _busy_lock = threading.Lock()
 
@@ -580,33 +579,6 @@ def terrain_tile(z, x, y):
         except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
             app.logger.warning("terreno %s falhou: %s", key, exc)
             return _png_response(render.terrain_flat_png(), etag, max_age=60)
-
-    return _png_response(body, etag)
-
-
-@app.get("/osm/<int:z>/<int:x>/<int:y>.png")
-def osm_overlay_tile(z, x, y):
-    """Camada "Traçado OSM": vias/ferrovias/água do carto padrão com o resto
-    transparente (extração por cor em osm_overlay.py) — pra pôr POR CIMA do
-    relevo/satélite sem cobrir o fundo. Determinístico por (z,x,y,versão) →
-    cache/ETag como os tiles do relevo; falha de rede → transparente SEM
-    cachear (mesma convenção das camadas EE)."""
-    key = f"osmov{osm_overlay.OSM_OVERLAY_VERSION}/{z}/{x}/{y}"
-    etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'
-
-    max_tile = 2 ** z - 1
-    if not (MIN_ZOOM <= z <= min(MAX_ZOOM, osm_overlay.OSM_MAX_ZOOM)
-            and 0 <= x <= max_tile and 0 <= y <= max_tile):
-        return _png_response(render.transparent_png(), etag)
-
-    body = render.cache_get(key)
-    if body is None:
-        try:
-            body = osm_overlay.render_overlay_tile(z, x, y)
-            render.cache_put(key, body)
-        except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
-            app.logger.warning("osm overlay %s falhou: %s", key, exc)
-            return _png_response(render.transparent_png(), etag, max_age=60)
 
     return _png_response(body, etag)
 

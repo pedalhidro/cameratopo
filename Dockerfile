@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY render.py server.py ee_source.py osm_overlay.py fabdem_cells.txt ./
+COPY render.py server.py ee_source.py fabdem_cells.txt ./
 COPY web ./web
 
 # Leitura eficiente de COG remoto via /vsicurl/. GDAL_CACHEMAX (MB) explícito:

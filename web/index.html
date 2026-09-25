@@ -2860,7 +2860,7 @@ const COST = {
   egressPerGib: 0.12,                 // US$/GiB internet América do Sul → América do Sul
   safety: 3,
 };
-const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|osm\/|stats|fx|costs|health)/;
+const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|stats|fx|costs|health)/;
 const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0 };
 let fxRate = null, fxDate = null, fxSource = "", clockSkew = null, costRaf = 0;
 function accountEntry(e) {

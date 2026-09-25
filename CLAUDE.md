@@ -46,18 +46,6 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `cameratopo-ee@` precisa de LEITURA nos assets (compartilhar no Code Editor
   ou `earthengine acl ch -u serviceAccount:…:R <asset>`); sem acesso → tile
   transparente. Local (ADC do dono) sempre funciona.
-- `osm_overlay.py` — **Traçado OSM** (`GET /osm/{z}/{x}/{y}.png`) — REMOVIDO
-  da UI (2026-09-25, pedido do Danilo); o endpoint segue no servidor, sem uso
-  pela página: proxy do tile carto padrão do osm.org + extração POR
-  COR (numpy, por pixel — sem vizinhança = sem costura por construção) que
-  mantém só vias/ferrovias/água, recoloridas mais escuras/saturadas, resto
-  alfa 0 — overlay estilo "touring" do OsmAnd pra pôr por cima do relevo.
-  Cores-alvo calibradas contra tiles reais do carto; se o estilo do osm.org
-  mudar, recalibrar e bumpar `OSM_OVERLAY_VERSION` JUNTO com
-  `OSM_TRACADO_VERSION` do index.html. Distâncias em **int32** (int16
-  estourava no quadrado e casava tudo). Falha de rede → transparente sem
-  cache (max-age=60), como as camadas EE. User-Agent identificado + cache de
-  7 dias (política de tiles do OSMF).
 - `web/index.html` — a UI inteira (um só arquivo, sem build): Leaflet (+
   leaflet-rotate, GPL-3.0) e IBM Plex Mono **vendorados** em `web/vendor/`
   (nada de CDN), strings em PT, estado todo no hash da URL, crossfade de
@@ -216,7 +204,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
 - **Módulo .py novo TEM que entrar no `COPY` do Dockerfile** (a lista é
   explícita): sem ele o import quebra SÓ no container → worker do gunicorn
   não sobe → 503 em tudo com o serviço `Ready` (mesmo sintoma do libexpat1;
-  foi o osm_overlay.py no deploy do traçado).
+  já aconteceu com um módulo de overlay, depois removido).
 - **Dockerfile precisa de `libexpat1`** na `python:3.12-slim`: sem ela o
   `import rasterio` quebra, o worker do gunicorn nunca sobe e o Cloud Run
   responde 503 em tudo — com o serviço parecendo `Ready` (o master do gunicorn
