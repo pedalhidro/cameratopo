@@ -622,8 +622,8 @@
         Paraná 30m), o <b>Traçado OSM</b> (só as vias, ferrovias
         e rios do OpenStreetMap, com o resto transparente: bom por cima do
         relevo ou do satélite), os mapas base (OpenStreetMap, Satélite,
-        Híbrido) no fundo, logo abaixo do <b>Relevo</b>; as camadas temáticas
-        ficam acima dele (ligou, aparece por cima) e os seus <i>Desenhos</i> no topo.
+        Híbrido) logo abaixo do <b>Relevo</b>, as camadas temáticas no fundo
+        (suba com ▲ pra ver por cima) e os seus <i>Desenhos</i> no topo.
         Cada linha tem <b>▲▼</b> (ordem de empilhamento),
         <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. As camadas de
         elevação/declive/PTL seguem os parâmetros do painel ☰ (inclusive a
@@ -814,15 +814,15 @@ const EE_LAYERS = [
   // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
   { id: "desenhos",       label: "Desenhos",                         draw: true, op: 100 },
 ];
-// Pilha padrão FUNDO → TOPO: bases → relevo → camadas temáticas → rios,
-// traçado, desenhos. As temáticas ficam ACIMA do relevo: embaixo dele (opaco)
-// ligar MapBiomas & cia. não mostrava nada. (O catálogo acima segue na ordem do
-// app GEE; a pilha é montada daqui.)
+// Pilha padrão FUNDO → TOPO: camadas temáticas → bases (OSM, Satélite,
+// Híbrido) → relevo → rios, traçado, desenhos. As bases ficam logo abaixo do
+// relevo; as temáticas, no fundo (aparecem ao subir com ▲ ou tirar o que está
+// por cima). (O catálogo acima segue na ordem do app GEE; a pilha é montada daqui.)
 const TOP_OVERLAYS = ["rios", "tracado", "desenhos"];
 const DEFAULT_STACK = [
+  ...EE_LAYERS.filter((l) => !l.base && !l.relief && !TOP_OVERLAYS.includes(l.id)).map((l) => l.id),
   ...EE_LAYERS.filter((l) => l.base).map((l) => l.id),
   "relevo",
-  ...EE_LAYERS.filter((l) => !l.base && !l.relief && !TOP_OVERLAYS.includes(l.id)).map((l) => l.id),
   ...TOP_OVERLAYS,
 ];
 const LAYER_BY_ID = Object.fromEntries(EE_LAYERS.map((l) => [l.id, l]));
