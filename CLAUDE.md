@@ -76,8 +76,9 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
     Leaflet no zoom remove todo tile de outro zoom com `!complete` — sem isso o
     zoom jogava fora os tiles prontos e não reaproveitava pai/filhos.
   - Prévia (`ensurePreview`): até 2 zooms abaixo do zoom que o relevo PEDE
-    (retina pede +1), nunca abaixo de `PREVIEW_MIN_Z` (FABDEM z7 — o teto do
-    mosaico deixa z ≤ 6 vazio); recriada quando o deslocamento muda. PORTEIRA
+    (retina pede +1), nunca abaixo de `PREVIEW_MIN_Z` (hoje 0 pra todas as
+    fontes: o tier de 500 m dá relevo FABDEM em qualquer zoom; se um tier sair
+    de `ready`, suba o piso junto); recriada quando o deslocamento muda. PORTEIRA
     (`afterPreview`): os tiles cheios esperam a prévia do lote (ou 2,5 s).
 - **Troca de fonte cancela a anterior** (`freezeRelief`): camada que sai de
   cena para de pedir tiles e aborta os pendentes; crossfade superado sai na
@@ -199,8 +200,9 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   5° pra 360° (o globo em ~0,5 s pelos menores overviews do tier de 500 m). Sem tier cobrindo, segue o caminho nativo (≤ 5°). Antes o `/stats`
   recusava viewport > 5° e o "auto" não funcionava em z ≤ 8.
 - **Guardas de custo público**: mosaico FABDEM tem teto de span/nº de COGs por
-  tile (`MOSAIC_MAX_*` → transparente; 6° e 49 COGs = z6 inteiro, z ≤ 5 vazio —
-  a UI avisa e a prévia não desce abaixo de `PREVIEW_MIN_Z`); `/stats` tem `STATS_MAX_SPAN_DEG`;
+  tile (`MOSAIC_MAX_*` → transparente; 6° e 49 COGs = z6 inteiro) — na prática
+  só pesa com tier fora de `ready` ou `ss` alto, porque z ≤ 8 sai do tier;
+  `/stats` tem `STATS_MAX_SPAN_DEG` (5°, 360° quando há tier cobrindo);
   `ss` clampa em `SS_HARD_MAX`. Parse de query defensivo (`math.isfinite` —
   `cycles=1e999` já derrubou com OverflowError, que `except ValueError` NÃO
   pega).
