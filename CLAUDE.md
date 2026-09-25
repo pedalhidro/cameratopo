@@ -119,7 +119,10 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   modo mouse/FPS (M): Pointer Lock no canvas, deltas acumulados e aplicados
   1×/quadro via lookAround (observador parado), Leaflet só sincroniza na
   saída; "no chão" (G): o hook fixa a câmera em chão sob ela + `walkH` (Q/Z
-  mudam walkH), soltar recalcula o centerLift pra ficar onde está; altitude move a câmera na VERTICAL deslocando a altura do centro
+  mudam walkH), soltar recalcula o centerLift pra ficar onde está. O CHÃO SOB
+  A CÂMERA vem de `groundAt` (nosso /terrain/ amostrado, cache, × exagero):
+  o terreno do MapLibre só tem tiles À VISTA e devolve 0 fora deles — olhando
+  pro horizonte, o chão sob o observador saía 0 e o "no chão" afundava pro mar; altitude move a câmera na VERTICAL deslocando a altura do centro
   — `centerLift` — zoom aproximava do centro). Inclinação 0–90°: centro LIVRE
   (`centerClampedToGround: false`) + `transformCameraUpdate:
   keepCameraAboveGround` (altura do centro = máx(chão do centro + centerLift,

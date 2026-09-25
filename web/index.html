@@ -2350,10 +2350,54 @@ let centerLift = 0;
 // anda por cima dos morros. Q/Z mudam walkH em vez da altitude livre.
 let walkOn = false, walkH = 2;
 const WALK_MIN_M = 1.5, WALK_MAX_M = 5000;
+// Chão SOB A CÂMERA, confiável. O terreno do MapLibre só tem os tiles À VISTA:
+// olhando pro horizonte, o chão debaixo do observador fica fora do quadro, o
+// tile não existe e getElevationForLngLatZoom devolve 0 (nível do mar) — o
+// "no chão" afundava pra 0 m, dentro dos morros. Então: amostra do NOSSO
+// /terrain/ (Terrarium, zoom máximo do DEM) sob a câmera, com cache; enquanto o
+// tile não chega, usa o MapLibre se ele tiver dado (≠ 0) ou o último chão
+// conhecido — nunca "cai" pro mar. Retorna já × exagero (= o relevo desenhado).
+const groundTiles = new Map();   // "dem/z/x/y" → Float32Array (m) | "loading" | null
+const GROUND_TILES_MAX = 48;
+let lastGroundCam = 0;
+function groundAt(ll) {
+  const dem = terrainDem(), z = TERRAIN_MAXZOOM[dem], n = 2 ** z, rad = Math.PI / 180;
+  const xf = ((ll.lng + 180) / 360) * n;
+  const yf = ((1 - Math.log(Math.tan(ll.lat * rad) + 1 / Math.cos(ll.lat * rad)) / Math.PI) / 2) * n;
+  const x = Math.floor(xf), y = Math.floor(yf), key = `${dem}/${z}/${x}/${y}`;
+  const t = groundTiles.get(key);
+  if (t === undefined) { loadGroundTile(key, dem, z, x, y); return null; }
+  if (!(t instanceof Float32Array)) return null;
+  const px = Math.min(255, Math.floor((xf - x) * 256)), py = Math.min(255, Math.floor((yf - y) * 256));
+  return t[py * 256 + px] * P.ex;
+}
+async function loadGroundTile(key, dem, z, x, y) {
+  groundTiles.set(key, "loading");
+  if (groundTiles.size > GROUND_TILES_MAX) groundTiles.delete(groundTiles.keys().next().value);
+  try {
+    const r = await fetch(`/terrain/${z}/${x}/${y}.png?dem=${dem}&v=${TERRAIN_VERSION}`);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+    const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+    const cx = cv.getContext("2d", { willReadFrequently: true }); cx.drawImage(bmp, 0, 0);
+    const d = cx.getImageData(0, 0, 256, 256).data, a = new Float32Array(65536);
+    for (let i = 0, j = 0; i < 65536; i++, j += 4) a[i] = d[j] * 256 + d[j + 1] + d[j + 2] / 256 - 32768;
+    groundTiles.set(key, a);
+    settleCamera();                          // chegou o chão de verdade: reajusta
+  } catch (e) {
+    groundTiles.delete(key);                 // tenta de novo na próxima
+  }
+}
+function groundUnderCamera(tr, T) {
+  const ll = tr.getCameraLngLat(), g = groundAt(ll);
+  if (g !== null) return (lastGroundCam = g);
+  const m = T ? T.getElevationForLngLatZoom(ll, tr.zoom) : 0;
+  return m !== 0 ? (lastGroundCam = m) : lastGroundCam;
+}
 function keepCameraAboveGround(tr) {
   const T = map3d && map3d.terrain;
   if (!T) return {};
-  const groundCam = T.getElevationForLngLatZoom(tr.getCameraLngLat(), tr.zoom);
+  const groundCam = groundUnderCamera(tr, T);
   const above = tr.getCameraAltitude() - tr.elevation;          // = cos(pitch)·distância (m)
   if (walkOn) {
     const e = groundCam + walkH - above;
@@ -2394,7 +2438,7 @@ async function set3d(on) {
   writeHash();
   if (!on) {
     if (document.pointerLockElement) document.exitPointerLock();
-    centerLift = 0; walkOn = false;
+    centerLift = 0; walkOn = false; lastGroundCam = 0;
     $("btn-walk").setAttribute("aria-pressed", "false"); syncWalkLabel();
     if (map3d) { map3d.remove(); map3d = null; }
     map3dLoaded = false; tiles3d.clear(); terrainDemOn = null; busy3d = false;
@@ -2513,7 +2557,7 @@ function camMove(r, dt) {
     // altura da câmera acima do chão sob ela escala ×2^taxa/s (piso: CAM_CLEAR_M);
     // o Δ vai inteiro pra altura do centro → movimento puramente vertical
     const tr = map3d.transform, T = map3d.terrain;
-    const groundCam = T ? T.getElevationForLngLatZoom(tr.getCameraLngLat(), tr.zoom) : 0;
+    const groundCam = groundUnderCamera(tr, T);
     const h = tr.getCameraAltitude() - groundCam;
     const dh = Math.max(CAM_CLEAR_M, h * 2 ** (r.alt * dt)) - h;
     const groundCenter = T ? T.getElevationForLngLatZoom(tr.center, tr.zoom) : 0;
