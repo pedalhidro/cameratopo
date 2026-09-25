@@ -487,7 +487,7 @@
   <label for="fov3d">Campo de visão <span id="fov3d-val">37°</span></label>
   <input type="range" id="fov3d" min="5" max="80" step="1" value="37" aria-label="Campo de visão do 3D">
 </div>
-<div id="zoom-hint" hidden>FABDEM aparece a partir do zoom 6 — aproxime, ou use <b>FABDEM · GEE</b> (Earth Engine, qualquer zoom)</div>
+<div id="zoom-hint" hidden>Abaixo do zoom 6 o FABDEM só cobre (parte d)a América do Sul por enquanto — aproxime, ou use <b>FABDEM · GEE</b></div>
 <div id="cost-pop" hidden role="dialog" aria-label="Custo estimado desta sessão"></div>
 <div id="load-progress" role="progressbar" aria-label="Carregando tiles" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
   <div class="bar"></div><span class="lbl"></span>
@@ -727,7 +727,7 @@ const DEFAULTS = {
 // então SEM URL nova o navegador/CDN seguem servindo PNGs antigos depois de uma
 // mudança na matemática do render (nem reiniciar o servidor resolve — dentro do
 // max-age o navegador nem revalida o ETag). Bumpe junto com o RENDER_VERSION.
-const TILE_VERSION = "9";
+const TILE_VERSION = "10";
 
 // Superamostragem: px lidos por lado no zoom afastado (query `ss` do tile). Mais
 // = declividade computada mais perto da resolução nativa do DEM (mais textura,
@@ -1325,6 +1325,7 @@ function ensurePreview(url = reliefUrl()) {
   else if (preview._url !== url) preview.setUrl(url);
 }
 map.on("zoomend", () => { ensurePreview(); syncZoomHint(); });
+
 // Abaixo do piso do FABDEM o servidor devolve tile vazio (guarda de custo do
 // mosaico) — sem aviso parecia "tiles que não carregaram".
 function syncZoomHint() {
@@ -2175,7 +2176,7 @@ $("btn-eye").addEventListener("click", () => {
 // opacidade (desenhos ficam só no 2D). Zoom: o MapLibre mede o mundo em 512 px
 // e o Leaflet em 256 → z3d = z2d − 1. Bearing: o leaflet-rotate gira o
 // conteúdo no sentido horário → bearing3d = −bearing2d.
-const TERRAIN_VERSION = "1";                       // = render.TERRAIN_VERSION — bump JUNTO
+const TERRAIN_VERSION = "2";                       // = render.TERRAIN_VERSION — bump JUNTO
 const TERRAIN_MAXZOOM = { fabdem: 12, sp: 15 };    // = render.TERRAIN_MAXZOOM
 let map3d = null, map3dLoaded = false, sync3dGuard = false, busy3d = false;
 const tiles3d = new Map();   // id da fonte → URL atual (setTiles só se mudou)

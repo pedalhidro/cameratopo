@@ -180,9 +180,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   = média da elevação, banda 2 = média da declividade NATIVA (tan ×10000) —
   derivada no grid de 30 m e só depois agregada (invariante acima); o render
   NÃO deriva nada do tier (sem buffer, média de área = sem costura). Por tile:
-  o tier mais GROSSO com ≥ `ss` px de lado que CONTÉM o tile inteiro, senão o
-  mosaico nativo (ss=512: z ≤ 7 → 500 m; z8–9 na AS → 90 m). Terreno 3D idem
-  com 256 px. Nomes dos arquivos = offsets em px do EE a partir da origem NO
+  o tier mais GROSSO, `ready`, com ≥ 256 px (px de SAÍDA, não `ss` — não há
+  declividade a derivar) que CONTÉM o tile inteiro, senão o mosaico nativo:
+  z ≤ 8 → 500 m; z9–10 na AS → 90 m. O tier dá a declividade NATIVA média
+  (medido: p50 ~3× a do mosaico em z8, que lê overview de 60 m) — coerente
+  com z11+ e com o EE. Arquivos do EE: `<nome><linha>-<coluna>.tif` (SEM hífen
+  depois do nome). Terreno 3D idem. Nomes dos arquivos = offsets em px do EE a partir da origem NO
   do tier. Mudou o tier → bumpe RENDER/TILE_VERSION e TERRAIN_VERSION.
 - **Mar = 0 m, falha ≠ mar** (FABDEM e EE): célula 1°×1° fora de
   `fabdem_cells.txt` (lista da coleção do EE; está no COPY do Dockerfile) é mar

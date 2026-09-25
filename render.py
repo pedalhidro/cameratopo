@@ -60,7 +60,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "9"
+RENDER_VERSION = "10"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -124,27 +124,29 @@ MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 49)
 # elevação, banda 2 = média da declividade NATIVA (tan ×10000) — a declividade
 # já vem da resolução nativa, então aqui NÃO se deriva nada (sem buffer, sem
 # costura: cada pixel de saída é a média de área do seu pedaço).
-# Escolha por tile: o tier MAIS GROSSO que ainda tem ≥ `ss` px de lado no tile
-# (resolução de sobra) e que CONTÉM o tile inteiro; senão o mosaico nativo.
-# Com ss=512: z ≤ 7 → 500 m (globo); z8–9 → 90 m (América do Sul); resto 30 m.
-# Terreno 3D idem, com 256 px.
+# Escolha por tile: o tier MAIS GROSSO que ainda tem ≥ 1 px por px de SAÍDA
+# (256 de lado no tile) e que CONTÉM o tile inteiro; senão o mosaico nativo. O
+# limiar é o tamanho de saída, não o `ss`: o tier não deriva declividade (ela já
+# vem nativa), então não precisa de superamostragem. z ≤ 8 → 500 m (globo);
+# z9–10 → 90 m (América do Sul); resto 30 m. Bônus: z10 fica coerente com z11+
+# (no mosaico, z ≤ 10 lê overview de 60 m e a declividade sai ~2× menor).
 # Lidos DIRETO do bucket (storage.googleapis.com), não pelo domínio telhas.*
 # (LB/CDN): o bucket `telhas` e o Cloud Run estão os dois em southamerica-east1
 # → transferência GCS→Cloud Run na mesma região é grátis e de baixa latência.
 # (O EE só exporta pra GCS/Drive/asset — por isso os tiers não estão no R2.)
 _TELHAS_DEM = os.environ.get("CAMERATOPO_TIER_BASE") or "https://storage.googleapis.com/telhas/dem"
-TIERS = [   # do mais grosso pro mais fino
+TIERS = [   # do mais grosso pro mais fino; `ready` = arquivos já no bucket
     {"name": "fabdem_500m", "ppd": 240, "file_deg": 90, "origin": (-180.0, 90.0),
-     "extent": (-180.0, -90.0, 180.0, 90.0)},
+     "extent": (-180.0, -90.0, 180.0, 90.0), "ready": False},   # export do EE em curso
     {"name": "fabdem_90m_sa", "ppd": 1200, "file_deg": 10, "origin": (-90.0, 20.0),
-     "extent": (-90.0, -60.0, -30.0, 20.0)},
+     "extent": (-90.0, -60.0, -30.0, 20.0), "ready": True},
 ]
 TIER_SLOPE_SCALE = 10000.0
 # DESLIGADO até os arquivos do export existirem no bucket: com tier ligado e
 # arquivo faltando, todo tile de zoom afastado vira DEMReadError. Ligar = trocar
 # o default + bump RENDER/TILE_VERSION e TERRAIN_VERSION (os tiles de zoom
 # afastado renderizados sem tier estão em cache de 7 dias).
-TIER_ON = (os.environ.get("CAMERATOPO_TIER") or "0") != "0"
+TIER_ON = (os.environ.get("CAMERATOPO_TIER") or "1") != "0"
 
 
 def pick_tier(x, y, z, read_px):
@@ -153,17 +155,20 @@ def pick_tier(x, y, z, read_px):
         return None
     b = TMS.bounds(morecantile.Tile(x, y, z))
     for t in TIERS:
+        if not t.get("ready"):
+            continue
         if (360.0 / (2 ** z)) * t["ppd"] < read_px:
             continue                                   # grosso demais pra este zoom
         w, s_, e, n = t["extent"]
-        if b.left >= w and b.right <= e and b.bottom >= s_ and b.top <= n:
+        eps = 1e-9   # borda do tile = borda do tier (−90.0 sai −90.0000000001)
+        if b.left >= w - eps and b.right <= e + eps and b.bottom >= s_ - eps and b.top <= n + eps:
             return t
     return None
 
 
 def _tier_assets_for_bounds(t, west, south, east, north):
-    """Arquivos do tier (EE: <nome>-<linha px>-<coluna px>.tif, a partir da
-    origem NO) que tocam o bbox."""
+    """Arquivos do tier (EE: <nome><linha px>-<coluna px>.tif — sem hífen após o
+    nome —, a partir da origem NO) que tocam o bbox."""
     ox, oy = t["origin"]
     fd, fpx = t["file_deg"], int(round(t["file_deg"] * t["ppd"]))
     w, s_, e, n = t["extent"]
@@ -176,7 +181,8 @@ def _tier_assets_for_bounds(t, west, south, east, north):
             left = ox + c * fd
             if east <= left or west >= left + fd:
                 continue
-            out.append(f"{_TELHAS_DEM}/{t['name']}/{t['name']}-{r * fpx:010d}-{c * fpx:010d}.tif")
+            # EE cola o offset no prefixo SEM hífen: <nome><linha>-<coluna>.tif
+            out.append(f"{_TELHAS_DEM}/{t['name']}/{t['name']}{r * fpx:010d}-{c * fpx:010d}.tif")
     return out
 
 
@@ -468,8 +474,7 @@ def render_fields(dem, x, y, z, *, tilesize=256, max_read=None):
     parte cara (leitura nativa, declividade, reamostragem sem costura) mora
     aqui; `shade` é só cor — e é o que o navegador refaz sozinho a partir do
     /field/ (field_tile), sem voltar ao servidor quando os params mudam."""
-    cap_px = max(MIN_READ_SIZE, min(SS_HARD_MAX, int(max_read or MAX_READ_SIZE)))
-    tier = pick_tier(x, y, z, cap_px) if dem == "fabdem" else None
+    tier = pick_tier(x, y, z, tilesize) if dem == "fabdem" else None
     if tier is not None:
         return _tier_fields(tier, x, y, z, tilesize)   # zoom afastado: tier
     b = TMS.bounds(morecantile.Tile(x, y, z))
@@ -668,7 +673,7 @@ def field_tile(dem, x, y, z, tilesize=256, max_read=None):
 # Versão do ENCODING/leitura do terreno — chave de cache/ETag E o `v=` que a UI
 # manda (TERRAIN_VERSION do index.html). Bumpe os DOIS juntos, como o par
 # RENDER/TILE_VERSION (os tiles têm max-age de 7 dias).
-TERRAIN_VERSION = "1"
+TERRAIN_VERSION = "2"
 # Zoom máximo NATIVO do terreno por fonte (acima o MapLibre sobreamplia): ~1 px
 # de tile por célula nativa. FABDEM 30 m → z12 (~35 m/px em SP); DEM-SP 5 m → z15.
 TERRAIN_MAXZOOM = {"fabdem": 12, "sp": 15}

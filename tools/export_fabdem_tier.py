@@ -21,8 +21,8 @@ Uso (auth: token do gcloud do usuário, vale ~1 h — a tarefa roda no Google):
 
 args: ppd [nome] [oeste,sul,leste,norte] [lado do arquivo em graus]. A região
 tem que ser múltipla do lado do arquivo: a origem do grid É o canto NO da
-região, e o EE nomeia cada arquivo <prefixo>-<linha px>-<coluna px>.tif (10
-dígitos) a partir dela — o render.py deriva os limites pelos offsets (TIERS).
+região, e o EE nomeia cada arquivo <prefixo><linha px>-<coluna px>.tif (10
+dígitos, SEM hífen depois do prefixo) a partir dela — o render.py deriva os limites pelos offsets (TIERS).
 """
 
 import math
