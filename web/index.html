@@ -73,7 +73,10 @@
     }
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  /* App de tela cheia: a PÁGINA nunca rola (painéis/modal rolam por dentro).
+     Sem isto, rótulo largo (barra de progresso, toast, aviso) num celular
+     empurrava o documento e a barra de rolagem horizontal piscava. */
+  html, body { height: 100%; margin: 0; overflow: hidden; }
   body, button, input, textarea, .leaflet-container {
     font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
@@ -444,6 +447,7 @@
     position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
     background: rgba(20,24,30,0.82); color: #fff; font-size: 11px; font-weight: 600;
     padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+    max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis;
   }
   @media (prefers-reduced-motion: reduce) {
     #load-progress .bar { transition: none; }
@@ -2254,8 +2258,16 @@ function applyTileLod() {
   const e = 1 + 1.5 * Math.log2(Math.cos(rad(89.25 - P.fov)) / Math.cos(rad(89.25)));
   map3d.setSourceTileLodParams(Math.max(1, e), 3);
 }
+// FOV como LENTE: o observador fica parado. O MapLibre mantém centro e zoom e
+// recua/avança a câmera (distância = ½·altura/tan(fov/2)) — a posição é anotada
+// antes e a câmera volta pra ela depois (pinCamera).
 function applyFov() {
-  if (map3d && map3d.setVerticalFieldOfView) map3d.setVerticalFieldOfView(P.fov);
+  if (map3d && map3d.setVerticalFieldOfView) {
+    const tr = map3d.transform, c = tr.getCameraLngLat();
+    const target = { lng: c.lng, lat: c.lat, alt: tr.getCameraAltitude() };
+    map3d.setVerticalFieldOfView(P.fov);
+    if (map3dLoaded) pinCamera(target);
+  }
   applyTileLod();
   $("fov3d").value = String(P.fov);
   $("fov3d-val").textContent = `${Math.round(P.fov)}°`;
@@ -2480,15 +2492,27 @@ function lookAround(dPitch, dBearing) {
     cam.lng + (h * Math.sin(bearing * rad)) / (R * Math.cos(cam.lat * rad)) / rad,
     cam.lat + (h * Math.cos(bearing * rad)) / R / rad,
   ];
-  let elevation = alt - v;
-  const zoom = tr.zoom;
+  const elevation = alt - v;
+  const ground = T ? T.getElevationForLngLatZoom(new maplibregl.LngLat(center[0], center[1]), tr.zoom) : 0;
+  centerLift = elevation - ground;
+  map3d.jumpTo({ center, elevation, pitch, bearing, zoom: tr.zoom });
+  pinCamera(cam);
+}
+// Põe a câmera EXATAMENTE em `target` ({lng, lat, alt}) sem mexer em rumo,
+// inclinação, zoom nem FOV: mede onde o MapLibre a colocou e translada o
+// conjunto (centro + altura do centro) pelo erro — 2–3 passadas bastam (a
+// câmera é centro + um deslocamento fixo). Usado pelo olhar em 1ª pessoa e
+// pelo FOV. centerLift acompanha, senão o hook de altura desfazia.
+function pinCamera(target) {
+  const T = map3d.terrain;
   for (let pass = 0; pass < 3; pass++) {
-    const ground = T ? T.getElevationForLngLatZoom(new maplibregl.LngLat(center[0], center[1]), zoom) : 0;
+    const tr = map3d.transform, got = tr.getCameraLngLat(), gotAlt = tr.getCameraAltitude();
+    const dLng = got.lng - target.lng, dLat = got.lat - target.lat, dAlt = gotAlt - target.alt;
+    if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7 && Math.abs(dAlt) < 0.05) return;
+    const center = [tr.center.lng - dLng, tr.center.lat - dLat], elevation = tr.elevation - dAlt;
+    const ground = T ? T.getElevationForLngLatZoom(new maplibregl.LngLat(center[0], center[1]), tr.zoom) : 0;
     centerLift = elevation - ground;
-    map3d.jumpTo({ center, elevation, pitch, bearing, zoom });
-    if (pass === 2) break;
-    const got = map3d.transform.getCameraLngLat(), gotAlt = map3d.transform.getCameraAltitude();
-    center[0] -= got.lng - cam.lng; center[1] -= got.lat - cam.lat; elevation -= gotAlt - alt;
+    map3d.jumpTo({ center, elevation });
   }
 }
 const padBtn = (k) => document.querySelector(`.pad3d button[data-cam="${k}"]`);
