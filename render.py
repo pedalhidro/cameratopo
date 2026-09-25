@@ -845,6 +845,61 @@ def _slope_pct_native(dem, bbox, pct=98.0):
     return max(1e-9, float(np.percentile(np.concatenate(vals), pct)))
 
 
+# ── /stats por TIER (zoom afastado) ─────────────────────────────────────────
+# Viewport larga (z ≤ 10) = dezenas/centenas de COGs 1°×1° no caminho nativo — o
+# /stats recusava (> 5°) e o "auto" parava de funcionar em z ≤ 8. Nesses zooms o
+# mapa é DESENHADO pelo tier; tirar os percentis do MESMO tier é mais barato
+# (overviews) e mais coerente: banda 1 = elevação (p5/p80), banda 2 = média da
+# declividade nativa — exatamente o que está sombreado — (p98). Mar (nodata do
+# tier) fica de fora, como no caminho nativo.
+TIER_STATS_MIN_SPAN_DEG = 1.5     # viewport ≥ isto (~z ≤ 10) → tier
+TIER_STATS_MAX_SPAN_DEG = 60.0    # teto do endpoint quando há tier cobrindo
+
+
+def stats_tier_for(bbox):
+    """(tier, bbox recortado à extensão dele) do tier `ready` que cobre ≥ 50% do
+    bbox (o mais grosso entre os que cobrem inteiro; senão o de maior cobertura),
+    ou None."""
+    w, s, e, n = bbox
+    area = max(1e-12, (e - w) * (n - s))
+    best = None
+    for t in TIERS:
+        if not t.get("ready"):
+            continue
+        tw, ts, te, tn = t["extent"]
+        iw, is_, ie, in_ = max(w, tw), max(s, ts), min(e, te), min(n, tn)
+        if ie <= iw or in_ <= is_:
+            continue
+        frac = (ie - iw) * (in_ - is_) / area
+        if frac >= 0.5 and (best is None or frac > best[0] + 1e-9):
+            best = (frac, t, (iw, is_, ie, in_))
+    return (best[1], best[2]) if best else None
+
+
+def _tier_stats(t, bbox, max_size=512):
+    assets = _tier_assets_for_bounds(t, *bbox)
+    if not assets:
+        return None
+    try:
+        img, _ = mosaic_reader(
+            assets, _asset_part, bbox, dst_crs="EPSG:4326", bounds_crs="EPSG:4326",
+            max_size=max_size, indexes=(1, 2), resampling_method="average",
+            allowed_exceptions=(TileOutsideBounds,),
+        )
+    except (TileOutsideBounds, EmptyMosaicError):
+        return None
+    a = img.array
+    m = ~np.ma.getmaskarray(a[0])
+    if not m.any():
+        return None
+    elev = np.ma.getdata(a[0]).astype(np.float64)[m]          # array puro: o np.percentile
+    slope = np.ma.getdata(a[1]).astype(np.float64)[m] / TIER_SLOPE_SCALE   # ignora máscara
+    return {"elevMin": float(np.percentile(elev, 5)),
+            "elevMax": float(np.percentile(elev, 80)),
+            "slopeMax": max(1e-9, float(np.percentile(slope, 98))),
+            "source": t["name"]}
+
+
 def stats_for_bbox(dem, bbox):
     """{elevMin(p5), elevMax(p80), slopeMax(p98 da declividade NATIVA)} sobre um
     bbox geográfico (oeste, sul, leste, norte, em graus), ou None se a leitura
@@ -858,7 +913,17 @@ def stats_for_bbox(dem, bbox):
     É a mesma matemática que o modo `auto` usa; o modo "auto segue a tela" da UI
     chama isto pela viewport corrente e congela os números explícitos na
     querystring, então continua uniforme (sem costura) por toda a grade — só que
-    adaptado ao que está na tela."""
+    adaptado ao que está na tela.
+
+    FABDEM com viewport larga (≥ TIER_STATS_MIN_SPAN_DEG) → percentis do tier
+    que desenha esses zooms (stats_tier_for / _tier_stats)."""
+    w, s, e, n = bbox
+    if dem == "fabdem" and TIER_ON and max(e - w, n - s) >= TIER_STATS_MIN_SPAN_DEG:
+        tb = stats_tier_for(bbox)
+        if tb is not None:
+            st = _tier_stats(*tb)
+            if st is not None:
+                return st
     read = _read_dem_part(dem, bbox)
     if read is None:
         return None

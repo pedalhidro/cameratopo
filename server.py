@@ -408,7 +408,12 @@ def stats():
     s = max(-85.06, s); n = min(85.06, n)
     if e <= w or n <= s:
         return _json_cors({"ok": False, "error": "bbox degenerado"}, 400)
-    if (e - w) > STATS_MAX_SPAN_DEG or (n - s) > STATS_MAX_SPAN_DEG:
+    # Viewport larga só passa se houver tier cobrindo (leitura barata pelos
+    # overviews); no caminho nativo seriam centenas de COGs 1°×1°.
+    wide = (e - w) > STATS_MAX_SPAN_DEG or (n - s) > STATS_MAX_SPAN_DEG
+    if wide and not (dem == "fabdem" and render.TIER_ON
+                     and max(e - w, n - s) <= render.TIER_STATS_MAX_SPAN_DEG
+                     and render.stats_tier_for((w, s, e, n)) is not None):
         return _json_cors({"ok": False, "error": "bbox grande demais"}, 400)
 
     try:

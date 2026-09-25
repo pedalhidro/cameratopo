@@ -192,6 +192,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   leu → `DEMReadError` → resposta SEM cache (field 503, PNG transparente
   max-age 60). Nunca cachear falha como vazio/mar (ficaria 7 dias).
   `/stats` continua ignorando o mar (percentis só de terra).
+- **`/stats` em zoom afastado usa o TIER**: viewport ≥ 1,5° (z ≤ 10) tira os
+  percentis do tier que desenha esses zooms (`stats_tier_for` → `_tier_stats`:
+  banda 1 p5/p80, banda 2 = declividade nativa média p98; mar fora), recortada
+  à extensão do tier que cobre ≥ 50% da vista; aí o teto do endpoint sobe de
+  5° pra 60°. Sem tier cobrindo, segue o caminho nativo (≤ 5°). Antes o `/stats`
+  recusava viewport > 5° e o "auto" não funcionava em z ≤ 8.
 - **Guardas de custo público**: mosaico FABDEM tem teto de span/nº de COGs por
   tile (`MOSAIC_MAX_*` → transparente; 6° e 49 COGs = z6 inteiro, z ≤ 5 vazio —
   a UI avisa e a prévia não desce abaixo de `PREVIEW_MIN_Z`); `/stats` tem `STATS_MAX_SPAN_DEG`;
