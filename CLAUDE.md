@@ -109,9 +109,14 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   index.html andam JUNTOS; `TERRAIN_MAXZOOM` idem. Controles: exagero
   vertical e campo de visão (`setVerticalFieldOfView`), ambos no hash; pad
   de câmera (segurar = rAF com taxa/s: mover relativo ao bearing, girar,
-  inclinar; altitude move a câmera na VERTICAL via
-  `calculateCameraOptionsFromCameraLngLatAltRotation` — zoom aproximava do
-  centro). FOV mexe no LOD dos tiles: `applyTileLod` ajusta
+  inclinar; altitude move a câmera na VERTICAL deslocando a altura do centro
+  — `centerLift` — zoom aproximava do centro). Inclinação 0–90°: centro LIVRE
+  (`centerClampedToGround: false`) + `transformCameraUpdate:
+  keepCameraAboveGround` (altura do centro = máx(chão do centro + centerLift,
+  o que deixa a câmera ≥ 30 m acima do chão sob ela)); o hook só roda em
+  gesto/jumpTo, então `settleCamera()` no load e a cada idle (só se mudar —
+  jumpTo vazio faria loop move→idle). Sem isso, em 90° a câmera ficava na
+  altura do chão do alvo, dentro do relevo exagerado. FOV mexe no LOD dos tiles: `applyTileLod` ajusta
   `setSourceTileLodParams` pra penalidade de tile inclinado ficar = 1 em
   qualquer FOV (senão 5° pedia tiles 1–2 zooms abaixo = borrado). Estilo com `transition: {duration: 0}` + 
   `freeRtt()` após mudar paint: com terreno as camadas viram textura cacheada

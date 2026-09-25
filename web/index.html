@@ -817,7 +817,7 @@ function readHash() {
   P.ptlSd = Math.min(10, Math.max(0.1, num("psd", P.ptlSd)));
   P.ptlKernel = Math.min(3000, Math.max(30, num("pk", P.ptlKernel)));
   P.d3 = h.get("3d") === "1";
-  P.pitch = Math.min(85, Math.max(0, num("pitch", P.pitch)));
+  P.pitch = Math.min(90, Math.max(0, num("pitch", P.pitch)));   // 0 = de cima · 90 = horizonte
   P.ex = Math.min(5, Math.max(1, num("ex", P.ex)));
   P.fov = Math.min(80, Math.max(5, num("fov", P.fov)));
 
@@ -2289,12 +2289,43 @@ function sync3dLayers() {
   applyTileLod();   // fontes novas nascem com o LOD padrão
   map3d.triggerRepaint();
 }
+// Chamado pelo MapLibre a CADA atualização de câmera (antes de desenhar).
+// Altura do centro = a maior entre o chão sob o centro (o comportamento normal
+// "preso ao chão") e a que deixa a câmera CAM_CLEAR_M acima do chão sob ELA.
+// Mudar só a altura do centro sobe a câmera na mesma medida, sem mexer em
+// inclinação, zoom ou rumo. Em inclinação normal a câmera está muito acima →
+// nada muda; perto de 90° é o que dá a vista do horizonte de cima do chão.
+// `centerLift`: quanto o usuário ergueu (ou baixou) a vista com ⇧⇩, em metros
+// sobre o chão do centro. Subir/descer a câmera NA VERTICAL = deslocar a altura
+// do centro por Δ (a câmera anda o mesmo Δ, com posição no chão, zoom,
+// inclinação e rumo intactos) — e o hook tem que LEMBRAR esse Δ, senão o
+// "prender ao chão" desfazia a subida no quadro seguinte.
+const CAM_CLEAR_M = 30;
+let centerLift = 0;
+function keepCameraAboveGround(tr) {
+  const T = map3d && map3d.terrain;
+  if (!T) return {};
+  const groundCenter = T.getElevationForLngLatZoom(tr.center, tr.zoom);
+  const groundCam = T.getElevationForLngLatZoom(tr.getCameraLngLat(), tr.zoom);
+  const above = tr.getCameraAltitude() - tr.elevation;          // = cos(pitch)·distância (m)
+  const e = Math.max(groundCenter + centerLift, groundCam + CAM_CLEAR_M - above);
+  return Math.abs(e - tr.elevation) > 0.5 ? { elevation: e } : {};
+}
+// O hook só roda em gesto/jumpTo/easeTo — não na criação do mapa nem quando os
+// tiles de terreno chegam e MUDAM o chão sob a câmera. Aplica "na mão" no load e
+// a cada idle, e SÓ se mudar algo (jumpTo vazio geraria move → idle → loop).
+function settleCamera() {
+  if (!map3d) return;
+  const d = keepCameraAboveGround(map3d.transform);
+  if (d.elevation !== undefined) map3d.jumpTo({ elevation: d.elevation });
+}
 async function set3d(on) {
   P.d3 = on;
   $("btn-3d").setAttribute("aria-pressed", String(on));
   document.body.classList.toggle("mode3d", on);
   writeHash();
   if (!on) {
+    centerLift = 0;
     if (map3d) { map3d.remove(); map3d = null; }
     map3dLoaded = false; tiles3d.clear(); terrainDemOn = null; busy3d = false;
     $("map3d").hidden = true;
@@ -2320,7 +2351,14 @@ async function set3d(on) {
   try {
     map3d = new maplibregl.Map({
       container: el, center: [c.lng, c.lat], zoom: map.getZoom() - 1,
-      bearing: -P.rot, pitch: P.pitch, maxPitch: 85, attributionControl: false,
+      bearing: -P.rot, pitch: P.pitch, maxPitch: 90, attributionControl: false,
+      // Inclinação até 90° (horizonte). No MapLibre a câmera fica a
+      // cos(pitch)·distância ACIMA do centro — com o centro preso ao chão, em 90°
+      // ela ficava na altura do chão do alvo, DENTRO do relevo (exagerado), e a
+      // tela virava listras. Centro livre + keepCameraAboveGround: o centro sobe
+      // só o necessário pra câmera ficar ≥ CAM_CLEAR_M acima do chão sob ela.
+      centerClampedToGround: false,
+      transformCameraUpdate: keepCameraAboveGround,
       style: {
         // transição 0: com terreno, a textura drapeada (RTT) é capturada no 1º
         // quadro da transição de paint (300 ms por padrão) e não se atualiza
@@ -2337,9 +2375,12 @@ async function set3d(on) {
   map3d.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
   // botão direito arrasta = gira/inclina; sem o menu de contexto por cima
   map3d.getCanvasContainer().addEventListener("contextmenu", (e) => e.preventDefault());
-  map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); });
+  map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); settleCamera(); });
   map3d.on("dataloading", () => { if (!busy3d) { busy3d = true; updateProgress(); } });
-  map3d.on("idle", () => { if (busy3d) { busy3d = false; updateProgress(); } });
+  map3d.on("idle", () => {
+    settleCamera();
+    if (busy3d) { busy3d = false; updateProgress(); }
+  });
   map3d.on("moveend", () => {   // Leaflet acompanha (hash, auto, busca)
     if (camHeld) return;        // pad segurado: jumpTo a cada quadro — sincroniza ao soltar
     const m = map3d.getCenter();
@@ -2376,13 +2417,15 @@ function camStep(now) {
     const v = map3d.getCanvas().clientWidth * CAM_PAN_FRAC * dt;
     map3d.panBy([r.pan[0] * v, r.pan[1] * v], { duration: 0 });
   } else if (r.alt) {
-    const tr = map3d.transform, cam = tr.getCameraLngLat(), alt = tr.getCameraAltitude();
-    const ground = (map3d.queryTerrainElevation && map3d.queryTerrainElevation(cam)) || 0;
-    const above = Math.max(50, (alt - ground) * 2 ** (r.alt * dt));   // nunca abaixo de 50 m do chão
-    // roll explícito: sem ele a função devolve roll undefined e o jumpTo quebra
-    const o = map3d.calculateCameraOptionsFromCameraLngLatAltRotation(
-      cam, ground + above, map3d.getBearing(), map3d.getPitch(), map3d.getRoll ? map3d.getRoll() : 0);
-    if (o && o.zoom >= 1 && o.zoom <= 22) map3d.jumpTo(o);
+    // altura da câmera acima do chão sob ela escala ×2^taxa/s (piso: CAM_CLEAR_M);
+    // o Δ vai inteiro pra altura do centro → movimento puramente vertical
+    const tr = map3d.transform, T = map3d.terrain;
+    const groundCam = T ? T.getElevationForLngLatZoom(tr.getCameraLngLat(), tr.zoom) : 0;
+    const h = tr.getCameraAltitude() - groundCam;
+    const dh = Math.max(CAM_CLEAR_M, h * 2 ** (r.alt * dt)) - h;
+    const groundCenter = T ? T.getElevationForLngLatZoom(tr.center, tr.zoom) : 0;
+    centerLift = tr.elevation + dh - groundCenter;   // o lift EFETIVO (já com a folga do hook)
+    map3d.jumpTo({ elevation: tr.elevation + dh });
   } else {
     const o = {};
     if (r.bearing) o.bearing = map3d.getBearing() + r.bearing * dt;

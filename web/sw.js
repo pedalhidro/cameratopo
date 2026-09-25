@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const VERSION = "22";
+const VERSION = "23";
 const CACHE = `cameratopo-v${VERSION}`;
 
 const SHELL = [
