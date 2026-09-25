@@ -159,6 +159,25 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `Cache-Control` de 7 dias: o ETag sozinho NÃO fura o max-age (o navegador nem
   revalida), então sem o `v=` novo na URL o usuário continua vendo os PNGs
   antigos — inclusive "depois do fix".
+- **Tiers de resolução reduzida** (`TIERS` no render.py, `TIER_ON` — desligado
+  até o export do EE terminar; gerados por
+  `tools/export_fabdem_tier.py` no EE → `gs://telhas/dem/<nome>/`, lidos (como o DEM-SP)
+  direto de storage.googleapis.com — mesma região do Cloud Run = transferência
+  grátis; o EE não exporta pro R2): 500 m
+  global (4×2 arquivos de 90°) e 90 m América do Sul (arquivos de 10°). Banda 1
+  = média da elevação, banda 2 = média da declividade NATIVA (tan ×10000) —
+  derivada no grid de 30 m e só depois agregada (invariante acima); o render
+  NÃO deriva nada do tier (sem buffer, média de área = sem costura). Por tile:
+  o tier mais GROSSO com ≥ `ss` px de lado que CONTÉM o tile inteiro, senão o
+  mosaico nativo (ss=512: z ≤ 7 → 500 m; z8–9 na AS → 90 m). Terreno 3D idem
+  com 256 px. Nomes dos arquivos = offsets em px do EE a partir da origem NO
+  do tier. Mudou o tier → bumpe RENDER/TILE_VERSION e TERRAIN_VERSION.
+- **Mar = 0 m, falha ≠ mar** (FABDEM e EE): célula 1°×1° fora de
+  `fabdem_cells.txt` (lista da coleção do EE; está no COPY do Dockerfile) é mar
+  → 0 m sem pedido; nodata dentro de célula/tier também. COG que EXISTE e não
+  leu → `DEMReadError` → resposta SEM cache (field 503, PNG transparente
+  max-age 60). Nunca cachear falha como vazio/mar (ficaria 7 dias).
+  `/stats` continua ignorando o mar (percentis só de terra).
 - **Guardas de custo público**: mosaico FABDEM tem teto de span/nº de COGs por
   tile (`MOSAIC_MAX_*` → transparente; 6° e 49 COGs = z6 inteiro, z ≤ 5 vazio —
   a UI avisa e a prévia não desce abaixo de `PREVIEW_MIN_Z`); `/stats` tem `STATS_MAX_SPAN_DEG`;

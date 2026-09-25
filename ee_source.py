@@ -40,7 +40,7 @@ import render  # CMO_PHASE — mesma paleta, mesmíssimos bytes
 
 # Versão da FONTE EE — entra na chave de cache/ETag do tile (papel do
 # RENDER_VERSION para esta fonte). Bumpe ao mudar a expressão EE da composição.
-EE_VERSION = "1"
+EE_VERSION = "2"
 
 # Versão do REGISTRY de camadas (endpoint /ee/<camada>/…): chave de cache/ETag
 # dos tiles das camadas E o `v=` que a UI manda. Bumpe ao mudar qualquer
@@ -105,7 +105,9 @@ def _build_image(elev_min, elev_max, slope_max, gamma, cycles):
     proj = col.first().select(0).projection()
     # Como no ee-cameratopo.js: mosaico na projeção nativa (a declividade TEM
     # que ser derivada no grid nativo — invariante nº 2), depois bicubic.
-    elev = col.mosaic().setDefaultProjection(proj)
+    # Sem FABDEM (mar) = 0 m, como no render local (fabdem_cells.txt): o mar
+    # pinta a cor de 0 m e a costa ganha o degrau de declividade real.
+    elev = col.mosaic().unmask(0).setDefaultProjection(proj)
     slope_deg = ee.Terrain.slope(elev)
     elev_s = elev.resample("bicubic")
     slope_s = slope_deg.resample("bicubic")

@@ -473,9 +473,11 @@ def tile(z, x, y):
                     max_read=p["max_read"],
                 )
         except Exception as exc:  # noqa: BLE001 — nunca derruba o tile server
+            # FALHA (rede/R2/EE) ≠ "sem dado": transparente SEM cache (nem aqui
+            # nem 7 dias no navegador/CDN) — senão o buraco ficava congelado.
             app.logger.warning("render %s falhou: %s", key, exc)
-            body = None
-        if body is None:
+            return _png_response(render.transparent_png(), etag, max_age=60)
+        if body is None:                  # sem cobertura (DEM-SP fora da RMSP etc.)
             body = render.transparent_png()
         render.cache_put(key, body)
 

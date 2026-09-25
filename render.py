@@ -34,7 +34,11 @@ import morecantile
 
 # ── Fontes de DEM (mesmas URLs que o cliente usa) ────────────────────────────
 FABDEM_BASE_URL = "https://fabdem.pedalhidrografi.co/"
-SAMPA_DEM_URL = "https://telhas.pedalhidrografi.co/dem/sampa_geral.tif"
+# Direto do bucket (não pelo domínio telhas.*, que tem LB/CDN na frente): bucket
+# e Cloud Run na MESMA região (southamerica-east1) → transferência grátis e
+# latência menor. Mesmo arquivo → pixels iguais (sem bump de versão).
+SAMPA_DEM_URL = os.environ.get("CAMERATOPO_SAMPA_URL") or \
+    "https://storage.googleapis.com/telhas/dem/sampa_geral.tif"
 # O COG do DEM-SP não declara nodata: fora da cobertura o valor é 0 (e uns
 # resíduos ~1e-9), e o retângulo tem uma faixa de zeros na borda. Sem isto a
 # reamostragem mistura 0 m com 700 m e a borda vira um aro laranja/preto
@@ -56,7 +60,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "8"
+RENDER_VERSION = "9"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -113,6 +117,94 @@ MOSAIC_MAX_SPAN_DEG = float(os.environ.get("CAMERATOPO_MOSAIC_MAX_SPAN") or 6.0)
 # CDN guarda. z ≤ 5 continua vazio (≥ 11° de lado, ~130 COGs) — a UI avisa.
 MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 49)
 
+# ── Tiers de resolução reduzida (FABDEM agregado no Earth Engine) ──────────
+# Zoom afastado sobre o mosaico 1°×1° = dezenas/centenas de COGs por tile (caro,
+# ou vazio pela guarda acima). Cada tier é UM grid EPSG:4326 em poucos arquivos
+# grandes com overviews (tools/export_fabdem_tier.py): banda 1 = média da
+# elevação, banda 2 = média da declividade NATIVA (tan ×10000) — a declividade
+# já vem da resolução nativa, então aqui NÃO se deriva nada (sem buffer, sem
+# costura: cada pixel de saída é a média de área do seu pedaço).
+# Escolha por tile: o tier MAIS GROSSO que ainda tem ≥ `ss` px de lado no tile
+# (resolução de sobra) e que CONTÉM o tile inteiro; senão o mosaico nativo.
+# Com ss=512: z ≤ 7 → 500 m (globo); z8–9 → 90 m (América do Sul); resto 30 m.
+# Terreno 3D idem, com 256 px.
+# Lidos DIRETO do bucket (storage.googleapis.com), não pelo domínio telhas.*
+# (LB/CDN): o bucket `telhas` e o Cloud Run estão os dois em southamerica-east1
+# → transferência GCS→Cloud Run na mesma região é grátis e de baixa latência.
+# (O EE só exporta pra GCS/Drive/asset — por isso os tiers não estão no R2.)
+_TELHAS_DEM = os.environ.get("CAMERATOPO_TIER_BASE") or "https://storage.googleapis.com/telhas/dem"
+TIERS = [   # do mais grosso pro mais fino
+    {"name": "fabdem_500m", "ppd": 240, "file_deg": 90, "origin": (-180.0, 90.0),
+     "extent": (-180.0, -90.0, 180.0, 90.0)},
+    {"name": "fabdem_90m_sa", "ppd": 1200, "file_deg": 10, "origin": (-90.0, 20.0),
+     "extent": (-90.0, -60.0, -30.0, 20.0)},
+]
+TIER_SLOPE_SCALE = 10000.0
+# DESLIGADO até os arquivos do export existirem no bucket: com tier ligado e
+# arquivo faltando, todo tile de zoom afastado vira DEMReadError. Ligar = trocar
+# o default + bump RENDER/TILE_VERSION e TERRAIN_VERSION (os tiles de zoom
+# afastado renderizados sem tier estão em cache de 7 dias).
+TIER_ON = (os.environ.get("CAMERATOPO_TIER") or "0") != "0"
+
+
+def pick_tier(x, y, z, read_px):
+    """Tier pro tile (dict) ou None (→ mosaico nativo)."""
+    if not TIER_ON:
+        return None
+    b = TMS.bounds(morecantile.Tile(x, y, z))
+    for t in TIERS:
+        if (360.0 / (2 ** z)) * t["ppd"] < read_px:
+            continue                                   # grosso demais pra este zoom
+        w, s_, e, n = t["extent"]
+        if b.left >= w and b.right <= e and b.bottom >= s_ and b.top <= n:
+            return t
+    return None
+
+
+def _tier_assets_for_bounds(t, west, south, east, north):
+    """Arquivos do tier (EE: <nome>-<linha px>-<coluna px>.tif, a partir da
+    origem NO) que tocam o bbox."""
+    ox, oy = t["origin"]
+    fd, fpx = t["file_deg"], int(round(t["file_deg"] * t["ppd"]))
+    w, s_, e, n = t["extent"]
+    out = []
+    for r in range(int(round((oy - s_) / fd))):
+        top = oy - r * fd
+        if north <= top - fd or south >= top:
+            continue
+        for c in range(int(round((e - ox) / fd))):
+            left = ox + c * fd
+            if east <= left or west >= left + fd:
+                continue
+            out.append(f"{_TELHAS_DEM}/{t['name']}/{t['name']}-{r * fpx:010d}-{c * fpx:010d}.tif")
+    return out
+
+
+def _tier_read(t, x, y, z, tilesize, bands):
+    """Lê `bands` do tier no tile (média de área) → MaskedArray (B,H,W), ou None."""
+    b = TMS.bounds(morecantile.Tile(x, y, z))
+    assets = _tier_assets_for_bounds(t, b.left, b.bottom, b.right, b.top)
+    if not assets:
+        return None
+    img, failed = _mosaic_tile(assets, x, y, z, tilesize=tilesize, indexes=bands,
+                               resampling_method="average", reproject_method="average")
+    if failed or img is None:
+        return None     # quem chama levanta DEMReadError (tier cobre a extensão toda)
+    return img.array
+
+
+def _tier_fields(t, x, y, z, tilesize):
+    """Campos do tier. Nodata do tier = mar → 0 m, declividade 0 (o grid cobre a
+    extensão inteira; buraco não é falta de arquivo). Leitura falhou → erro."""
+    a = _tier_read(t, x, y, z, tilesize, (1, 2))
+    if a is None:
+        raise DEMReadError(f"tier {t['name']} {z}/{x}/{y}: leitura falhou")
+    m = ~np.ma.getmaskarray(a[0])
+    height = np.where(m, np.ma.filled(a[0], 0).astype(np.float64), 0.0)
+    slope = np.where(m, np.ma.filled(a[1], 0).astype(np.float64) / TIER_SLOPE_SCALE, 0.0)
+    return height, np.ones_like(m), slope
+
+
 # Paleta cmocean.phase (17 âncoras RGB), idêntica à CMO_PHASE do app.js. É
 # cíclica (primeira == última âncora), então repetir N ciclos não emenda.
 CMO_PHASE = np.array([
@@ -132,12 +224,43 @@ def fabdem_tile_name(lat_lo: int, lon_lo: int) -> str:
     return f"{ns}{abs(lat_lo):02d}{ew}{abs(lon_lo):03d}_FABDEM_V1-2.tif"
 
 
+# Células 1°×1° que TÊM arquivo FABDEM (fabdem_cells.txt, da coleção do EE).
+# Célula fora da lista é OCEANO com certeza — vira 0 m sem nenhum pedido (antes:
+# um 404 por célula de mar em todo tile costeiro). Célula DA lista que falha na
+# leitura é FALHA (DEMReadError, não cacheia) — não "mar": sem essa distinção,
+# um soluço do R2 viraria um remendo plano a 0 m em terra, cacheado 7 dias.
+def _load_cells():
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fabdem_cells.txt")
+    cells = set()
+    with open(p) as f:
+        for line in f:
+            c = line.strip()
+            if not c or c.startswith("#"):
+                continue
+            lat = int(c[1:3]) * (1 if c[0] == "N" else -1)
+            lon = int(c[4:7]) * (1 if c[3] == "E" else -1)
+            cells.add((lat, lon))
+    return cells
+
+
+FABDEM_CELLS = _load_cells()
+
+
+class DEMReadError(RuntimeError):
+    """Leitura de DEM que DEVIA ter dado certo falhou (rede/R2) — não é "sem
+    dado": quem chama não pode cachear o resultado como vazio/mar."""
+
+
 def _fabdem_assets_for_bounds(west, south, east, north):
-    """URLs dos COGs FABDEM 1°×1° que intersectam um bbox geográfico."""
+    """URLs dos COGs FABDEM 1°×1° que EXISTEM e intersectam um bbox geográfico."""
+    # ε: borda de tile exatamente em grau inteiro (−45.0 sai −45.000000000001)
+    # não pode puxar a célula vizinha — ela responderia TileOutsideBounds à toa
+    e9 = 1e-9
     assets = []
-    for lat_lo in range(math.floor(south), math.floor(north) + 1):
-        for lon_lo in range(math.floor(west), math.floor(east) + 1):
-            assets.append(FABDEM_BASE_URL + fabdem_tile_name(lat_lo, lon_lo))
+    for lat_lo in range(math.floor(south + e9), math.floor(north - e9) + 1):
+        for lon_lo in range(math.floor(west + e9), math.floor(east - e9) + 1):
+            if (lat_lo, lon_lo) in FABDEM_CELLS:
+                assets.append(FABDEM_BASE_URL + fabdem_tile_name(lat_lo, lon_lo))
     return assets
 
 
@@ -153,6 +276,30 @@ def _asset_tile(asset, x, y, z, **kwargs):
         raise
     except Exception as exc:  # noqa: BLE001
         raise TileOutsideBounds(str(exc)) from exc
+
+
+def _mosaic_tile(assets, x, y, z, **kwargs):
+    """mosaic_reader que SEPARA "tile fora deste COG" (legítimo, pula) de FALHA
+    de leitura (rede/R2/404 de arquivo que devia existir). Devolve (img ou None
+    se nenhum COG cobriu, lista de COGs que falharam)."""
+    failed = []
+
+    def one(asset, x, y, z, **kw):
+        try:
+            with Reader(asset) as r:
+                return r.tile(x, y, z, **kw)
+        except TileOutsideBounds:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            failed.append(asset)
+            raise TileOutsideBounds(str(exc)) from exc
+
+    try:
+        img, _ = mosaic_reader(assets, one, x, y, z,
+                               allowed_exceptions=(TileOutsideBounds,), **kwargs)
+    except (TileOutsideBounds, EmptyMosaicError):
+        img = None
+    return img, failed
 
 
 def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
@@ -182,16 +329,29 @@ def read_dem_tile(dem, x, y, z, buffer=1, tilesize=256, resampling=None):
                (b.top - b.bottom) > MOSAIC_MAX_SPAN_DEG:
                 return None
             assets = _fabdem_assets_for_bounds(b.left, b.bottom, b.right, b.top)
-            if not assets or len(assets) > MOSAIC_MAX_ASSETS:
+            n = tilesize + 2 * buffer
+            if not assets:              # só mar: 0 m, sem pedido nenhum
+                return np.zeros((n, n)), np.ones((n, n), dtype=bool)
+            if len(assets) > MOSAIC_MAX_ASSETS:
                 return None
-            img, _ = mosaic_reader(
-                assets, _asset_tile, x, y, z,
-                tilesize=tilesize, buffer=buffer, **rkw,
-                allowed_exceptions=(TileOutsideBounds,),
-            )
+            img, failed = _mosaic_tile(assets, x, y, z, tilesize=tilesize,
+                                       buffer=buffer, **rkw)
+            if img is None:
+                if failed:
+                    raise DEMReadError(f"FABDEM {z}/{x}/{y}: COG falhou: {failed}")
+                return np.zeros((n, n)), np.ones((n, n), dtype=bool)   # só mar
+            band = img.array[0]
+            m = ~np.ma.getmaskarray(band)
+            # Buraco + COG que FALHOU = falha; buraco sem falha = mar (0 m).
+            if not m.all() and failed:
+                raise DEMReadError(f"FABDEM {z}/{x}/{y}: COG falhou: {failed}")
+            h = np.where(m, np.ma.filled(band, 0.0).astype(np.float64), 0.0)
+            return h, np.ones_like(m)   # mar dentro das células = 0 m
     except (TileOutsideBounds, EmptyMosaicError):
         return None
-    except Exception:  # noqa: BLE001 — mosaico vazio / todos os assets falharam
+    except DEMReadError:
+        raise
+    except Exception:  # noqa: BLE001 — DEM-SP fora do ar etc.
         return None
 
     band = img.array[0]  # MaskedArray (H, W)
@@ -308,6 +468,10 @@ def render_fields(dem, x, y, z, *, tilesize=256, max_read=None):
     parte cara (leitura nativa, declividade, reamostragem sem costura) mora
     aqui; `shade` é só cor — e é o que o navegador refaz sozinho a partir do
     /field/ (field_tile), sem voltar ao servidor quando os params mudam."""
+    cap_px = max(MIN_READ_SIZE, min(SS_HARD_MAX, int(max_read or MAX_READ_SIZE)))
+    tier = pick_tier(x, y, z, cap_px) if dem == "fabdem" else None
+    if tier is not None:
+        return _tier_fields(tier, x, y, z, tilesize)   # zoom afastado: tier
     b = TMS.bounds(morecantile.Tile(x, y, z))
     lat_c = (b.bottom + b.top) / 2.0
     res256 = _mercator_res_m(z, lat_c)   # m/px de solo se lêssemos tilesize px
@@ -527,6 +691,10 @@ def terrain_tile(dem, x, y, z, tilesize=256):
     b = TMS.bounds(morecantile.Tile(x, y, z))
     res = _mercator_res_m(z, (b.bottom + b.top) / 2.0)   # m/px do tile
     def read(src):
+        tier = pick_tier(x, y, z, tilesize) if src == "fabdem" else None
+        if tier is not None:                                  # zoom afastado: tier
+            h, m, _ = _tier_fields(tier, x, y, z, tilesize)   # mar = 0 m; falha levanta
+            return h, m
         native = SP_NATIVE_M if src == "sp" else FABDEM_NATIVE_M
         # decimando de verdade → média de ÁREA (bilinear pularia pixels)
         rs = "average" if res > native * 1.05 else RESAMPLING
