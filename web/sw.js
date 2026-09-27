@@ -13,15 +13,13 @@
  */
 "use strict";
 
-const VERSION = "36";
+const VERSION = "37";
 const CACHE = `cameratopo-v${VERSION}`;
 
 const SHELL = [
   "./",
   "manifest.json",
-  "icon-192.png",
-  "icon-512.png",
-  "icon-512-maskable.png",
+  "icon-192.png",   // os de 512 (~350 KB) não: só a instalação usa, e ela os busca
   "vendor/leaflet/leaflet.css",
   "vendor/leaflet/leaflet.js",
   "vendor/leaflet-rotate/leaflet-rotate.js",

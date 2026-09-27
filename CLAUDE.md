@@ -80,6 +80,23 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
     fontes: o tier de 500 m dá relevo FABDEM em qualquer zoom; se um tier sair
     de `ready`, suba o piso junto); recriada quando o deslocamento muda. PORTEIRA
     (`afterPreview`): os tiles cheios esperam a prévia do lote (ou 2,5 s).
+- **Celular (iPhone) — cada item já foi bug:**
+  - `viewport-fit=cover` + status bar `black-translucent`: a página desenha
+    SOB o notch e o home indicator. Tudo que é fixo nas bordas soma
+    `var(--sat/--sar/--sab/--sal)` (= `env(safe-area-inset-*)`); cantos do
+    Leaflet/MapLibre idem. Elemento novo colado na borda → some o inset.
+  - Deitado (`max-height: 500px`, largura > 640) NÃO é desktop: painel vira
+    coluna lateral de altura cheia, pilha de botões em 2 colunas.
+  - Touch (`pointer: coarse`): alvos ≥ ~32–44 pt; sem Pointer Lock/atalhos;
+    ajustes do 3D recolhidos; segurar botão = título num toast (o `title`
+    não aparece no touch); `gesturestart` barrado (pinch dava zoom na página).
+    Sem `backdrop-filter` nos controles sempre visíveis (re-blur a cada quadro).
+  - Repintura do campo: só os tiles À VISTA no quadro; o resto numa fila de
+    fundo (`paintGen`/`staleQ`). Tile descarregado zera o canvas
+    (`width = height = 0`) — o WebKit conta canvas fora do DOM no teto de
+    memória até o GC. MapLibre com `pixelRatio` ≤ 2 (3× com terreno fritava a GPU).
+  - SW novo assumiu → pílula "Nova versão — toque para recarregar" (o PWA
+    suspenso no iOS ficava velho indefinidamente).
 - **Troca de fonte cancela a anterior** (`freezeRelief`): camada que sai de
   cena para de pedir tiles e aborta os pendentes; crossfade superado sai na
   hora. Antes cada troca de DEM enfileirava mais uma vista inteira
