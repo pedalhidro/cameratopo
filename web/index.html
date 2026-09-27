@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="description" content="Relevo de São Paulo pela Câmera Topográfica — elevação em paleta cíclica realçada pela declividade. Navegue o mapa e ajuste os parâmetros.">
 <title>Câmera Topográfica</title>
 <link rel="icon" href="favicon.ico" sizes="48x48">
@@ -59,6 +59,13 @@
     --field-bg: rgba(255, 255, 255, 0.9);
     --field-line: rgba(0, 0, 0, 0.18);
     --seg-bg: rgba(0, 0, 0, 0.05);
+    --panel-solid: rgba(255, 255, 255, 0.95);   /* sem blur (touch): um pouco mais opaco */
+    /* Áreas seguras do iPhone (notch/ilha, home indicator): com viewport-fit=cover
+       + status bar black-translucent a página desenha POR BAIXO delas. */
+    --sat: env(safe-area-inset-top, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -70,6 +77,7 @@
       --field-bg: rgba(255, 255, 255, 0.06);
       --field-line: rgba(255, 255, 255, 0.18);
       --seg-bg: rgba(255, 255, 255, 0.06);
+      --panel-solid: rgba(24, 28, 34, 0.94);
     }
   }
   * { box-sizing: border-box; }
@@ -77,6 +85,10 @@
      Sem isto, rótulo largo (barra de progresso, toast, aviso) num celular
      empurrava o documento e a barra de rolagem horizontal piscava. */
   html, body { height: 100%; margin: 0; overflow: hidden; }
+  /* Sem zoom de duplo toque nos controles (o iOS ignora user-scalable=no; o
+     pinch da página é barrado no JS por gesturestart). O mapa tem o seu. */
+  body { touch-action: manipulation; }
+  button { -webkit-touch-callout: none; }
   body, button, input, textarea, .leaflet-container {
     font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
@@ -89,9 +101,9 @@
   /* ── Painéis (controles ☰ e camadas ⧉) ───────────────────────────────── */
   /* No máximo 1/3 da tela por padrão; a alça (.grip) redimensiona na vertical */
   #panel, #layers-panel {
-    position: absolute; top: 116px; right: 12px; z-index: 1000;
+    position: absolute; top: calc(116px + var(--sat)); right: calc(12px + var(--sar)); z-index: 1000;
     width: 324px; max-width: calc(100vw - 24px);
-    max-height: 33vh; overflow-y: auto;
+    max-height: 33vh; max-height: 33dvh; overflow-y: auto;
     background: var(--panel-bg);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); border-radius: 14px;
@@ -219,8 +231,14 @@
   .map-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
   .map-btn .loc-ico { display: block; pointer-events: none; }
 
-  #panel-toggle { position: absolute; top: 12px; right: 12px; z-index: 1001; }
-  #layers-toggle { position: absolute; top: 64px; right: 12px; z-index: 1001; font-size: 17px; }
+  #panel-toggle { position: absolute; top: calc(12px + var(--sat)); right: calc(12px + var(--sar)); z-index: 1001; }
+  #layers-toggle { position: absolute; top: calc(64px + var(--sat)); right: calc(12px + var(--sar)); z-index: 1001; font-size: 17px; }
+  /* Cantos do Leaflet e do MapLibre fora das áreas seguras */
+  /* (#map3d: o CSS do MapLibre é injetado DEPOIS deste — precisa de mais especificidade) */
+  .leaflet-top, #map3d .maplibregl-ctrl-top-left, #map3d .maplibregl-ctrl-top-right { top: var(--sat); }
+  .leaflet-bottom, #map3d .maplibregl-ctrl-bottom-left, #map3d .maplibregl-ctrl-bottom-right { bottom: var(--sab); }
+  .leaflet-left, #map3d .maplibregl-ctrl-top-left, #map3d .maplibregl-ctrl-bottom-left { left: var(--sal); }
+  .leaflet-right, #map3d .maplibregl-ctrl-top-right, #map3d .maplibregl-ctrl-bottom-right { right: var(--sar); }
 
   /* Pilha de botões (📍/A/desenho/olho) no canto sup. esquerdo, abaixo do zoom */
   .ct-mapbtns { display: flex; flex-direction: column; gap: 8px; border: 0; box-shadow: none; position: relative; }
@@ -250,7 +268,7 @@
 
   /* Medidas do desenho — topo central, pílula glass, não intercepta o mapa */
   #measure {
-    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(12px + var(--sat)); left: 50%; transform: translateX(-50%);
     z-index: 1001; pointer-events: none; max-width: 78vw;
     padding: 8px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
     background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
@@ -291,7 +309,7 @@
     border: 1px solid var(--panel-line);
   }
   #cost-pop {
-    position: absolute; left: 12px; bottom: 44px; z-index: 1100; width: 300px; max-width: calc(100vw - 24px);
+    position: absolute; left: calc(12px + var(--sal)); bottom: calc(44px + var(--sab)); z-index: 1100; width: 300px; max-width: calc(100vw - 24px);
     padding: 10px 12px; border-radius: 12px; font-size: 11.5px; line-height: 1.5;
     background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow); color: var(--panel-fg);
@@ -301,7 +319,7 @@
   #cost-pop ul { margin: 6px 0; padding-left: 16px; }
   #cost-pop .fine { font-size: 10px; color: var(--panel-muted); }
   #cost-pop .lt { font-size: 11px; font-weight: 700; margin-top: 8px; }
-  #cost-pop { max-height: calc(100vh - 120px); overflow-y: auto; }
+  #cost-pop { max-height: calc(100vh - 120px); max-height: calc(100dvh - 120px - var(--sat) - var(--sab)); overflow-y: auto; }
   body.immersive .ct-cost, body.immersive #cost-pop { display: none; }
 
   /* Modo imersivo (👁): só o mapa + o olho, que vira o INVERSO do que está
@@ -347,7 +365,7 @@
   .modal-card {
     background: var(--panel-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
     border: 1px solid var(--panel-line); border-radius: 16px; box-shadow: var(--panel-shadow);
-    width: 100%; max-width: 540px; max-height: 33vh; overflow-y: auto; padding: 14px 16px;
+    width: 100%; max-width: 540px; max-height: 33vh; max-height: 33dvh; overflow-y: auto; padding: 14px 16px;
   }
 
   /* Alça de redimensionar (fundo dos painéis/modal): fixa embaixo do scroll,
@@ -376,19 +394,28 @@
   .modal-body a { color: var(--accent); text-decoration: none; }
 
   .toast {
-    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: calc(22px + var(--sab)); left: 50%; transform: translateX(-50%);
     z-index: 1200; background: rgba(20,24,30,0.94); color: #fff;
     padding: 9px 16px; border-radius: 999px; font-size: 12px; font-weight: 600;
     box-shadow: 0 6px 24px rgba(0,0,0,0.4); opacity: 0; transition: opacity .2s;
     pointer-events: none; max-width: 80vw; text-align: center;
   }
   .toast.show { opacity: 1; }
+  /* Versão nova do app (service worker trocou): pílula TOCÁVEL acima do toast */
+  #update-banner {
+    position: absolute; bottom: calc(64px + var(--sab)); left: 50%; transform: translateX(-50%);
+    z-index: 1201; border: 0; cursor: pointer; white-space: nowrap;
+    background: var(--accent); color: var(--accent-fg);
+    padding: 10px 16px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  }
+  #update-banner[hidden] { display: none; }
 
   /* Progresso dos tiles do servidor (relevo + camadas ⧉): barra fina no topo +
      rótulo. Tile frio leva 0,5–2 s e uma vista pede dezenas — sem feedback
      parece travado. `indet` = esperando o /stats (auto), antes dos tiles. */
   #load-progress {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 1150; height: 3px;
+    position: absolute; top: var(--sat); left: 0; right: 0; z-index: 1150; height: 3px;
     pointer-events: none; opacity: 0; transition: opacity .35s;
   }
   #load-progress.show { opacity: 1; }
@@ -406,7 +433,7 @@
   body.mode3d .leaflet-control-scale, body.mode3d #btn-pencil,
   body.mode3d #draw-tools, body.mode3d #color-flyout, body.mode3d #measure { display: none; }
   #ctl3d {
-    position: absolute; right: 56px; bottom: 12px; z-index: 1001; width: 190px;
+    position: absolute; right: calc(56px + var(--sar)); bottom: calc(12px + var(--sab)); z-index: 1001; width: 190px;
     padding: 8px 12px; border-radius: 12px;
     background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
@@ -471,6 +498,57 @@
     .modal-card { max-width: none; border-radius: 16px 16px 0 0; }
     .grip { bottom: auto; top: -14px; margin: -14px -16px 6px; padding: 7px 0 5px; }
     #panel .grip, #layers-panel .grip { top: -10px; margin: -10px -12px 6px; }
+    #panel, #layers-panel { padding-bottom: calc(12px + var(--sab)); }
+    .modal-card { padding-bottom: calc(14px + var(--sab)); }
+    /* folha aberta cobre o painel do 3D (que ficaria por cima dela) */
+    body.sheet-open #ctl3d { display: none; }
+    /* sem espaço pro rótulo inteiro: só "≈ R$ …" */
+    .ct-cost .cl { display: none; }
+  }
+  @media (max-width: 420px) {
+    .ct-wordmark { display: none; }   /* escala + custo já enchem a linha */
+  }
+
+  /* Celular DEITADO (iPhone: 844×390): sem isto caía no layout de desktop — o
+     painel começava em top:116px com 33vh ≈ 128 px de altura e a pilha de
+     botões da esquerda (≈ 470 px) passava da tela. Painel vira coluna lateral
+     de altura cheia, à esquerda dos botões ☰/⧉; pilha em 2 colunas. */
+  @media (max-height: 500px) and (min-width: 641px) {
+    #panel, #layers-panel {
+      top: calc(12px + var(--sat)); bottom: calc(12px + var(--sab)); right: calc(64px + var(--sar));
+      width: 340px; max-height: none; height: auto !important;
+    }
+    #panel .grip, #layers-panel .grip { display: none; }
+    .modal-card { max-height: calc(100dvh - 40px); }
+    .ct-mapbtns { display: grid; grid-template-columns: 44px 44px; gap: 8px; }
+    #draw-tools { left: 104px; }
+    #color-flyout { left: 156px; }
+    #ctl3d { max-height: calc(100dvh - 24px - var(--sat) - var(--sab)); overflow-y: auto; }
+  }
+
+  /* Touch: alvos de toque maiores (a HIG pede 44 pt; as linhas de camada
+     tinham ▲▼ de 18×12) e nada do que só existe com mouse/teclado. */
+  @media (pointer: coarse) {
+    .layer-row { gap: 8px; padding: 3px 0; }
+    .ly-move { flex-direction: row; gap: 3px; }
+    .ly-move button { width: 32px; height: 34px; font-size: 10px; border-radius: 6px; }
+    .layer-row input[type="checkbox"] { width: 22px; height: 22px; }
+    .layer-row .ly-name { font-size: 12px; }
+    .pad3d button { height: 40px; font-size: 16px; }
+    .draw-pop-del { width: 36px; height: 36px; }
+    .seg button { padding: 8px 6px; }
+  }
+  #ctl3d-more { display: none; }
+  @media (hover: none) and (pointer: coarse) {
+    #btn-mouselook, .look-btn kbd { display: none; }   /* Pointer Lock/teclado: não há no iOS */
+    #ctl3d-more { display: block; margin-top: 2px; }
+    #ctl3d:not(.open) #ctl3d-extra { display: none; }
+    #ctl3d.open #ctl3d-more span { display: inline-block; transform: rotate(180deg); }
+    /* backdrop-filter re-desfoca a cada quadro de pan/voo 3D: nos controles
+       SEMPRE visíveis troca por fundo mais opaco (as folhas mantêm o blur). */
+    .map-btn, .leaflet-bar a, .leaflet-touch .leaflet-bar a, .ct-wordmark, .ct-cost, #ctl3d, #measure {
+      -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--panel-solid);
+    }
   }
 </style>
 </head>
@@ -492,6 +570,8 @@
     <button type="button" data-cam="down" title="Descer (altitude) (Z)" aria-label="Descer">⇩</button>
   </div>
   <div class="pad3d-cap"><span>mover · girar</span><span>incl.</span><span>alt.</span></div>
+  <button type="button" id="ctl3d-more" class="look-btn" aria-expanded="false" aria-controls="ctl3d-extra">⚙ ajustes <span aria-hidden="true">▾</span></button>
+  <div id="ctl3d-extra">
   <button type="button" id="btn-mouselook" class="look-btn" aria-pressed="false"
     title="Olhar com o mouse, como num jogo em 1ª pessoa (M) — Esc sai">🖱 olhar com o mouse <kbd>M</kbd></button>
   <button type="button" id="btn-walk" class="look-btn" aria-pressed="false"
@@ -502,7 +582,9 @@
   <input type="range" id="ex3d" min="1" max="5" step="0.1" value="1.5" aria-label="Exagero vertical do 3D">
   <label for="fov3d">Campo de visão <span id="fov3d-val">37°</span></label>
   <input type="range" id="fov3d" min="5" max="80" step="1" value="37" aria-label="Campo de visão do 3D">
+  </div>
 </div>
+<button type="button" id="update-banner" hidden>Nova versão — toque para recarregar</button>
 <div id="cost-pop" hidden role="dialog" aria-label="Custo estimado desta sessão"></div>
 <div id="load-progress" role="progressbar" aria-label="Carregando tiles" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
   <div class="bar"></div><span class="lbl"></span>
@@ -1113,27 +1195,71 @@ const FieldLayer = LeanTileLayer.extend({
       .then((bmp) => {
         c._field = decodeField(bmp);
         if (bmp.close) bmp.close();
-        paintField(c);
+        paintField(c); c._gen = paintGen;
         c.complete = true;
         done(null, c);
       })
       .catch((err) => { if (err.name !== "AbortError") done(err, c); }));
     return c;
   },
-  repaint() { for (const k in this._tiles) paintField(this._tiles[k].el); },
+  // Repinta JÁ só o que está À VISTA (no zoom atual); o resto (keepBuffer,
+  // outro zoom) vai pra fila de fundo. Repintar tudo a cada quadro de slider
+  // custava ~50 ms com ~24–40 tiles — num celular o arrasto caía pra ~15 fps.
+  repaint(stale) {
+    const m = this._map;
+    let range = null;
+    if (m && this._tileZoom !== undefined) {
+      range = this._pxBoundsToTileRange(this._getTiledPixelBounds(m.getCenter()));
+    }
+    for (const k in this._tiles) {
+      const t = this._tiles[k], c = t.el;
+      if (!c._field || c._gen === paintGen) continue;
+      if (range && t.coords.z === this._tileZoom && range.contains(L.point(t.coords.x, t.coords.y))) {
+        paintField(c); c._gen = paintGen;
+      } else stale.push(c);
+    }
+  },
 });
 FieldLayer.addInitHook(function () {
   this.on("tileunload tileabort", (e) => { if (e.tile._abort) e.tile._abort(); });
+  // Solta a memória do tile removido JÁ: no iOS o canvas fora do DOM segue
+  // contando no teto de memória de canvas do WebKit até o GC passar — sessão
+  // longa de pan/zoom estourava o teto (ou a aba era recarregada).
+  this.on("tileunload", (e) => {
+    const c = e.tile;
+    c._field = null;
+    c.width = c.height = 0;
+  });
 });
-let repaintRaf = 0;
+let repaintRaf = 0, paintGen = 0, staleTimer = 0, staleQ = [];
 function scheduleRepaint() {        // rAF: arrastar slider não empilha repinturas
   if (repaintRaf) return;
   repaintRaf = requestAnimationFrame(() => {
     repaintRaf = 0;
     updatePaintState();
-    for (const ly of fieldLayers) ly.repaint();
+    paintGen++;
+    staleQ = [];
+    for (const ly of fieldLayers) ly.repaint(staleQ);
+    clearTimeout(staleTimer);
+    if (staleQ.length) staleTimer = setTimeout(drainStale, 120);
   });
 }
+// Fila de fundo: fatias de ~8 ms entre quadros (Safari não tem requestIdleCallback).
+function drainStale() {
+  const t0 = performance.now();
+  while (staleQ.length && performance.now() - t0 < 8) {
+    const c = staleQ.pop();
+    if (c._field && c._gen !== paintGen) { paintField(c); c._gen = paintGen; }
+  }
+  if (staleQ.length) staleTimer = setTimeout(drainStale, 16);
+}
+// Pan/zoom revelou tile da fila antes dela acabar: pinta o que ficou à vista.
+function repaintVisibleStale() {
+  if (!staleQ.length) return;
+  const extra = [];
+  for (const ly of fieldLayers) ly.repaint(extra);
+}
+map.on("moveend", repaintVisibleStale);
 updatePaintState();
 
 // Relevo com CROSSFADE quando a FONTE muda (DEM, ss; ou qualquer param na
@@ -2453,6 +2579,9 @@ async function set3d(on) {
     map3d = new maplibregl.Map({
       container: el, center: [c.lng, c.lat], zoom: map.getZoom() - 1,
       bearing: -P.rot, pitch: P.pitch, maxPitch: 90, attributionControl: false,
+      // Teto de 2× na densidade: a 3× (iPhone) o canvas com terreno tem
+      // 1170×2532 px — GPU no talo, aquecimento e aba recarregada pelo Safari.
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       // Inclinação até 90° (horizonte). No MapLibre a câmera fica a
       // cos(pitch)·distância ACIMA do centro — com o centro preso ao chão, em 90°
       // ela ficava na altura do chão do alvo, DENTRO do relevo (exagerado), e a
@@ -2730,13 +2859,19 @@ helpModal.addEventListener("click", (e) => { if (e.target === helpModal) closeHe
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !helpModal.hidden) closeHelp(); });
 
 // ── Toggles dos painéis (☰ controles / ⧉ camadas) — mutuamente exclusivos ────
+function syncSheetOpen() {   // folha aberta (celular) esconde o painel do 3D
+  document.body.classList.toggle("sheet-open",
+    !$("panel").classList.contains("collapsed") || !$("layers-panel").classList.contains("collapsed"));
+}
 function setLayersPanelOpen(open) {
   $("layers-panel").classList.toggle("collapsed", !open);
   $("layers-toggle").setAttribute("aria-pressed", String(open));
+  syncSheetOpen();
 }
 function setPanelOpen(open) {
   $("panel").classList.toggle("collapsed", !open);
   $("panel-toggle").setAttribute("aria-pressed", String(open));
+  syncSheetOpen();
 }
 $("panel-toggle").addEventListener("click", () => {
   const open = $("panel").classList.contains("collapsed");
@@ -2798,6 +2933,54 @@ window.addEventListener("resize", () => {
     if (parseFloat(box.style.height) > max) box.style.height = Math.max(130, max) + "px";
   });
 });
+
+// ── Touch (iPhone) ───────────────────────────────────────────────────────────
+// Pinch fora do mapa dava zoom na PÁGINA inteira (o iOS ignora user-scalable=no)
+// e, com overflow:hidden, não tinha como voltar. O mapa (Leaflet/MapLibre) usa
+// touch events, não gesture events — não é afetado.
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+// Painel do 3D: no touch os ajustes ficam recolhidos atrás de "⚙ ajustes" (o
+// painel inteiro cobria boa parte de uma tela de 390 pt).
+$("ctl3d-more").addEventListener("click", () => {
+  const open = $("ctl3d").classList.toggle("open");
+  $("ctl3d-more").setAttribute("aria-expanded", String(open));
+});
+// Botões de ícone (A, ⧉, 👁, …) só se explicavam pelo `title`, que no touch
+// nunca aparece: SEGURAR um botão mostra o título num toast (e não clica).
+const LP_SEL = ".map-btn, .leaflet-control-zoom a, .leaflet-control-rotate a, #panel-toggle, #layers-toggle";
+let lpTimer = null, lpStart = null, lpFired = null;
+document.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
+  lpFired = null;   // toque longo anterior que não gerou clique não "gruda"
+  const el = e.target.closest(LP_SEL);
+  if (!el) return;
+  lpStart = [e.clientX, e.clientY];
+  clearTimeout(lpTimer);
+  lpTimer = setTimeout(() => {
+    const t = el.getAttribute("title") || el.getAttribute("aria-label");
+    if (t) { toast(t); lpFired = el; }
+  }, 500);
+}, true);
+const lpCancel = () => { clearTimeout(lpTimer); lpTimer = null; };
+document.addEventListener("pointerup", lpCancel, true);
+document.addEventListener("pointercancel", lpCancel, true);
+document.addEventListener("pointermove", (e) => {
+  if (lpTimer && lpStart && Math.hypot(e.clientX - lpStart[0], e.clientY - lpStart[1]) > 10) lpCancel();
+}, true);
+document.addEventListener("click", (e) => {   // o toque longo não vira clique
+  if (lpFired && lpFired.contains(e.target)) { e.preventDefault(); e.stopPropagation(); }
+  lpFired = null;
+}, true);
+document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest(LP_SEL)) e.preventDefault(); }, true);
+// Dica, uma vez por navegador, em aparelho de toque
+if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) {
+  let seen = false;
+  try { seen = localStorage.getItem("cameratopo-hint-lp") === "1"; } catch (e) { /* sem storage */ }
+  if (!seen) {
+    setTimeout(() => toast("Dica: segure um botão para ver o que ele faz"), 1500);
+    try { localStorage.setItem("cameratopo-hint-lp", "1"); } catch (e) { /* sem storage */ }
+  }
+}
 
 // ── Link colado na MESMA janela ──────────────────────────────────────────────
 // readHash só roda no boot; colar um link que muda só o hash NÃO recarrega a
@@ -2930,7 +3113,7 @@ function renderCost() {
   const rate = fxRate || 5.18;
   const est = (usd) => brl(usd * COST.safety * rate);   // estimativa: ×fator, em R$
   const total = costAcc.usd * COST.safety * rate;
-  pill.textContent = `custo desta sessão ≈ ${brl(total)}`;
+  pill.innerHTML = `<span class="cl">custo desta sessão </span>≈ ${brl(total)}`;
   const pop = document.getElementById("cost-pop");
   if (pop.hidden) return;
   const fmt = (n, d = 1) => n.toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -2975,7 +3158,7 @@ map.addControl(new (L.Control.extend({
     const b = L.DomUtil.create("button", "ct-cost");
     b.id = "cost-pill"; b.type = "button";
     b.title = "Custo estimado desta sessão — toque pra detalhes";
-    b.textContent = "custo desta sessão ≈ …";
+    b.innerHTML = '<span class="cl">custo desta sessão </span>≈ …';
     L.DomEvent.disableClickPropagation(b);
     L.DomEvent.on(b, "click", () => {
       const pop = document.getElementById("cost-pop");
@@ -2997,8 +3180,10 @@ fetch("/fx").then((r) => r.json()).then((j) => {
 }).catch(() => {});
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
-if (window.innerWidth <= 640) $("panel").classList.add("collapsed");   // começa fechado no celular
+// começa fechado no celular (em pé OU deitado — deitado a coluna lateral cobre ~40% do mapa)
+if (window.matchMedia("(max-width: 640px), (max-height: 500px)").matches) $("panel").classList.add("collapsed");
 $("panel-toggle").setAttribute("aria-pressed", String(!$("panel").classList.contains("collapsed")));
+syncSheetOpen();
 L.control.scale({ imperial: false }).addTo(map);
 map.addControl(new (L.Control.extend({
   options: { position: "bottomleft" },
@@ -3012,7 +3197,25 @@ if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
 
 // PWA: service worker (shell offline + abertura instantânea). Ver web/sw.js —
 // bump da VERSION lá em qualquer mudança de arquivo servido.
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// Stale-while-revalidate deixa o app instalado numa versão velha por muito
+// tempo (o iOS mantém o PWA suspenso e só revalida ao reabrir): ao voltar pra
+// aba pede update(); quando o SW novo assume, OFERECE recarregar (a vista mora
+// no hash; os desenhos só na memória — por isso confirma se houver algum).
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;   // 1ª instalação também dispara controllerchange
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reg.update().catch(() => {});
+    });
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (hadController) $("update-banner").hidden = false;
+  });
+  $("update-banner").addEventListener("click", () => {
+    if (drawnShapes.length && !confirm("Recarregar apaga os desenhos não salvos. Continuar?")) return;
+    location.reload();
+  });
+}
 </script>
 </body>
 </html>
