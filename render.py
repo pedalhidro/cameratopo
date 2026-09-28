@@ -137,7 +137,13 @@ MOSAIC_MAX_ASSETS = int(os.environ.get("CAMERATOPO_MOSAIC_MAX_ASSETS") or 49)
 _TELHAS_DEM = os.environ.get("CAMERATOPO_TIER_BASE") or "https://storage.googleapis.com/telhas/dem"
 TIERS = [   # do mais grosso pro mais fino; `ready` = arquivos já no bucket
     {"name": "fabdem_500m", "ppd": 240, "file_deg": 90, "origin": (-180.0, 90.0),
-     "extent": (-180.0, -90.0, 180.0, 90.0), "ready": True},    # mar gravado como 0 (não nodata)
+     "extent": (-180.0, -90.0, 180.0, 90.0), "ready": True,     # mar gravado como 0 (não nodata)
+     # Remendos no MESMO grid, lidos ANTES dos arquivos principais (o mosaico
+     # pega o 1º pixel válido; fora das células remendadas o remendo é nodata).
+     # Lacuna Armênia/Azerbaijão (o FABDEM do EE não tem): tools/patch_tier_gap.py.
+     # `ready` só depois do arquivo no bucket (senão DEMReadError na região).
+     "patches": [{"file": "fabdem_500m_gap_cop30.tif", "bounds": (43.0, 38.0, 51.0, 42.0),
+                  "ready": False}]},
     {"name": "fabdem_90m_sa", "ppd": 1200, "file_deg": 10, "origin": (-90.0, 20.0),
      "extent": (-90.0, -60.0, -30.0, 20.0), "ready": True},
 ]
@@ -173,6 +179,10 @@ def _tier_assets_for_bounds(t, west, south, east, north):
     fd, fpx = t["file_deg"], int(round(t["file_deg"] * t["ppd"]))
     w, s_, e, n = t["extent"]
     out = []
+    for p in t.get("patches", ()):           # remendos PRIMEIRO (1º válido vence)
+        pw, ps, pe, pn = p["bounds"]
+        if p.get("ready") and east > pw and west < pe and north > ps and south < pn:
+            out.append(p.get("url") or f"{_TELHAS_DEM}/{t['name']}/{p['file']}")
     for r in range(int(round((oy - s_) / fd))):
         top = oy - r * fd
         if north <= top - fd or south >= top:

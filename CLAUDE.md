@@ -227,10 +227,15 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   e do `COPERNICUS/DEM/GLO30` do EE — exclui os dois países. O bucket do R2 tem
   COP30 (DSM, não bare-earth) com o MESMO nome/grid dos FABDEM, listado na seção
   `# gap-cop30` do `fabdem_cells.txt` (fim do arquivo). z ≥ 9, terreno e /stats
-  nativo já leem; o tier de 500 m (z ≤ 8) SÓ depois de reexportado com
-  `GAP=gs://…` (receita no docstring do `tools/export_fabdem_tier.py`: o EE não
-  lê o R2, as células vão pro GCS) — até lá a lacuna é mar nesses zooms.
-  Reexportou → bump RENDER/TILE_VERSION + TERRAIN_VERSION. A fonte `ee` segue
+  nativo já leem; o tier de 500 m (z ≤ 8) ganha um REMENDO só da lacuna:
+  `tools/patch_tier_gap.py` calcula LOCAL, dos COGs do R2, um COG pequeno no
+  mesmo grid (`TIERS[…]["patches"]`, listado ANTES dos arquivos principais — o
+  mosaico pega o 1º pixel válido; fora da lacuna é nodata). Conferido numa
+  célula FABDEM contra o tier do EE: elev |Δ| 0,25 m, declividade razão 0,999.
+  Remendo novo: `ready: False` até o arquivo estar no bucket (senão
+  DEMReadError), depois `ready: True` + bump RENDER/TILE_VERSION +
+  TERRAIN_VERSION. (Reexportar o globo com `GAP=gs://…` no
+  `export_fabdem_tier.py` também serve, mas é o globo inteiro.) A fonte `ee` segue
   sem os dois países (o EE não tem o dado). Emenda FABDEM↔COP30: degrau leve de
   textura (DSM × DTM, ~2× o |Δ| interior na linha da borda), sem desnível.
 - **Mar = 0 m, falha ≠ mar** (FABDEM e EE): célula 1°×1° fora de
