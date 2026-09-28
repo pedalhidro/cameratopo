@@ -60,7 +60,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "11"
+RENDER_VERSION = "12"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -673,7 +673,7 @@ def field_tile(dem, x, y, z, tilesize=256, max_read=None):
 # Versão do ENCODING/leitura do terreno — chave de cache/ETag E o `v=` que a UI
 # manda (TERRAIN_VERSION do index.html). Bumpe os DOIS juntos, como o par
 # RENDER/TILE_VERSION (os tiles têm max-age de 7 dias).
-TERRAIN_VERSION = "3"
+TERRAIN_VERSION = "4"
 # Zoom máximo NATIVO do terreno por fonte (acima o MapLibre sobreamplia): ~1 px
 # de tile por célula nativa. FABDEM 30 m → z12 (~35 m/px em SP); DEM-SP 5 m → z15.
 TERRAIN_MAXZOOM = {"fabdem": 12, "sp": 15}

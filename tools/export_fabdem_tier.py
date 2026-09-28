@@ -19,6 +19,15 @@ Uso (auth: token do gcloud do usuário, vale ~1 h — a tarefa roda no Google):
     T=... python tools/export_fabdem_tier.py 1200 fabdem_90m_sa -90,-60,-30,20 10
     #   1200 px/grau (≈ 92 m), América do Sul, arquivos de 10° → …/fabdem_90m_sa/
 
+LACUNA (Armênia/Azerbaijão): o FABDEM do EE não tem esses países (o GLO-30
+público exclui os dois), mas o bucket do R2 tem COP30 no mesmo grid — seção
+"# gap-cop30" do fabdem_cells.txt. O EE não lê o R2: copie as células pro GCS
+e passe o prefixo em GAP (sem GAP, o tier sai com a lacuna como mar, 0 m):
+    for c in $(sed -n '/^# gap-cop30/,$p' fabdem_cells.txt | grep -v '^#'); do
+      curl -s https://fabdem.pedalhidrografi.co/${c}_FABDEM_V1-2.tif \
+        | gcloud storage cp - gs://telhas/dem/cop30_gap/${c}_FABDEM_V1-2.tif; done
+    GAP=gs://telhas/dem/cop30_gap T=... python tools/export_fabdem_tier.py 240
+
 args: ppd [nome] [oeste,sul,leste,norte] [lado do arquivo em graus]. A região
 tem que ser múltipla do lado do arquivo: a origem do grid É o canto NO da
 região, e o EE nomeia cada arquivo <prefixo><linha px>-<coluna px>.tif (10
@@ -37,6 +46,19 @@ BUCKET = "telhas"
 NODATA = -32768
 
 
+def gap_cells():
+    """Células da seção '# gap-cop30' do fabdem_cells.txt (tudo depois do marcador)."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fabdem_cells.txt")
+    out, on = [], False
+    for line in open(p):
+        c = line.strip()
+        if c.startswith("# gap-cop30"):
+            on = True
+        elif on and c and not c.startswith("#"):
+            out.append(c)
+    return out
+
+
 def main(ppd: int, name: str, region: tuple, file_deg: float):
     token = os.environ.get("T")
     if token:
@@ -53,6 +75,13 @@ def main(ppd: int, name: str, region: tuple, file_deg: float):
 
     col = ee.ImageCollection(FABDEM)
     native = col.first().select(0).projection()
+    gap = os.environ.get("GAP")
+    if gap:   # lacuna do FABDEM preenchida com os COP30 do GCS (mesmo grid 1")
+        cells = gap_cells()
+        imgs = [ee.Image.loadGeoTIFF(f"{gap.rstrip('/')}/{c}_FABDEM_V1-2.tif") for c in cells]
+        imgs = [i.select([0], ["b1"]).updateMask(i.select(0).neq(-9999)) for i in imgs]
+        col = col.select([0], ["b1"]).merge(ee.ImageCollection(imgs))
+        print("lacuna:", len(cells), "células de", gap)
     elev = col.mosaic().setDefaultProjection(native)          # grid NATIVO (1")
     slope_tan = ee.Terrain.slope(elev).multiply(math.pi / 180.0).tan()
     stack = elev.addBands(slope_tan).rename(["elev", "slope"])
