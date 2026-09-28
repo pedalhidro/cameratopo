@@ -102,8 +102,18 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   hora. Antes cada troca de DEM enfileirava mais uma vista inteira
   (144 → 288 → 432). Relevo/⧉ com `updateWhenIdle: true` (sem tile varrido no
   arrasto).
+- **Modos de visualização** (seletor 2D · 🌐 · 3D; hash `mode=2d|globe|3d`):
+  **globo é o PADRÃO** — MapLibre em projeção `globe`, SEM terreno (nenhum
+  pedido de `/terrain/`), visto de cima; o 3D é o MapLibre COM terreno, plano
+  ou em globo (🌐 do painel, hash `globe=1`). `P.d3` = MapLibre ligado
+  (mode ≠ 2d), `wantTerrain()`/`wantGlobe()` decidem o resto; body ganha
+  `mode3d` (MapLibre) / `mode-terrain` (painel do 3D) / `mode-globe`.
+  Compatibilidade: hash sem `mode` com `3d=1` → 3D; hash sem `mode` e sem
+  `3d` (link antigo) → 2D; SÓ a visita sem hash cai no globo — já afastada
+  (zoom em que o globo inteiro cabe: diâmetro ≈ 512·2^z3d/π px) e com faixa
+  automática. Sem WebGL → 2D. O MapLibre está no shell do SW.
 - **Modo 3D** (botão 3D): MapLibre GL 5.24 **vendorado** em
-  `web/vendor/maplibre-gl/` e carregado SÓ quando liga. O Leaflet segue como
+  `web/vendor/maplibre-gl/` e carregado quando o modo é globo ou 3D. O Leaflet segue como
   mapa mestre (hash, /stats, busca, 📍) e no 3D fica SEM camadas de tile
   (`in3d` no `syncEeLayers` — senão o servidor renderiza tudo duas vezes);
   acompanha a câmera do MapLibre no moveend. z3d = z2d − 1 (mundo de 512 vs

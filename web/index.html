@@ -329,7 +329,7 @@
   /* na coluna esquerda, visibility (não display): o olho NÃO pode mudar de lugar */
   body.immersive .leaflet-control-zoom, body.immersive .leaflet-control-rotate,
   body.immersive .leaflet-control-scale, body.immersive .ct-wordmark,
-  body.immersive .ct-mapbtns .map-btn:not(#btn-eye),
+  body.immersive .ct-mapbtns .map-btn:not(#btn-eye), body.immersive .mode-seg,
   body.immersive #draw-tools, body.immersive #color-flyout { visibility: hidden; }
   body.immersive #btn-eye {
     background: transparent; border-color: transparent; box-shadow: none;
@@ -428,7 +428,19 @@
      só faz sentido no 2D (zoom/bússola/escala do Leaflet, desenho) some. */
   #map3d { position: absolute; inset: 0; z-index: 500; background: #0b0d10; }
   #map3d[hidden] { display: none; }
-  #btn-3d { font-size: 14px; letter-spacing: -0.02em; }
+  /* Seletor de modo 2D · 🌐 · 3D: pílula vertical no visual dos botões */
+  .mode-seg {
+    display: flex; flex-direction: column; width: 44px; border-radius: 12px; overflow: hidden;
+    background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
+  }
+  .mode-seg button {
+    height: 38px; padding: 0; border: 0; cursor: pointer; background: transparent;
+    color: var(--panel-fg); font-size: 13px; font-weight: 700; letter-spacing: -0.02em;
+  }
+  .mode-seg button + button { border-top: 1px solid var(--panel-line); }
+  .mode-seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+  .mode-seg button:active { transform: translateY(1px); }
   body.mode3d .leaflet-control-zoom, body.mode3d .leaflet-control-rotate,
   body.mode3d .leaflet-control-scale, body.mode3d #btn-pencil,
   body.mode3d #draw-tools, body.mode3d #color-flyout, body.mode3d #measure { display: none; }
@@ -438,7 +450,7 @@
     background: var(--panel-bg); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
   }
-  body:not(.mode3d) #ctl3d { display: none; }
+  body:not(.mode-terrain) #ctl3d { display: none; }
   #ctl3d label { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 600; color: var(--panel-muted); }
   #ctl3d input { width: 100%; accent-color: var(--accent); margin: 2px 0 6px; }
   #ctl3d input:last-child { margin-bottom: 0; }
@@ -520,7 +532,7 @@
     }
     #panel .grip, #layers-panel .grip { display: none; }
     .modal-card { max-height: calc(100dvh - 40px); }
-    .ct-mapbtns { display: grid; grid-template-columns: 44px 44px; gap: 8px; }
+    .ct-mapbtns { display: grid; grid-template-columns: 44px 44px; gap: 8px; align-items: start; }
     #draw-tools { left: 104px; }
     #color-flyout { left: 156px; }
     #ctl3d { max-height: calc(100dvh - 24px - var(--sat) - var(--sab)); overflow-y: auto; }
@@ -546,7 +558,7 @@
     #ctl3d.open #ctl3d-more span { display: inline-block; transform: rotate(180deg); }
     /* backdrop-filter re-desfoca a cada quadro de pan/voo 3D: nos controles
        SEMPRE visíveis troca por fundo mais opaco (as folhas mantêm o blur). */
-    .map-btn, .leaflet-bar a, .leaflet-touch .leaflet-bar a, .ct-wordmark, .ct-cost, #ctl3d, #measure {
+    .map-btn, .mode-seg, .leaflet-bar a, .leaflet-touch .leaflet-bar a, .ct-wordmark, .ct-cost, #ctl3d, #measure {
       -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--panel-solid);
     }
   }
@@ -701,12 +713,15 @@
         faixa automática). São renderizadas pelo Earth Engine — a primeira carga de
         uma camada pesada pode demorar alguns segundos.</p>
 
-      <h3>Botões do mapa (📍 · A · 3D · ✏ · 👁)</h3>
+      <h3>Botões do mapa (📍 · A · 2D/🌐/3D · ✏ · 👁)</h3>
       <p>No canto superior esquerdo, abaixo do zoom. <b>📍</b> liga/desliga o
         rastreamento da sua posição ao vivo (o navegador pede permissão): centra
         no primeiro sinal e o ponto passa a acompanhar você; toque de novo pra
         parar. <b>A</b> liga/desliga a <i>Faixa automática</i> (a faixa de
-        elevação/declive segue a tela). <b>3D</b> liga/desliga o modo 3D: o
+        elevação/declive segue a tela). O seletor <b>2D · 🌐 · 3D</b> escolhe o
+        modo: <b>🌐 globo</b> (o padrão) mostra a Terra como esfera, vista de
+        cima, sem a distorção de Mercator; <b>2D</b> é o mapa plano (o único com
+        desenho ✏); no <b>3D</b> o
         relevo (e as camadas ligadas no ⧉) vira um terreno de verdade, com a
         elevação do DEM escolhido. Arraste com o <b>botão direito</b> (ou
         Ctrl + arrastar; no celular, dois dedos pra cima/baixo) pra inclinar e
@@ -824,7 +839,11 @@ const DEFAULTS = {
   rot: 0,   // rotação do mapa (graus)
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
   ptlSd: 2.0, ptlKernel: 1000,   // PTL: ±desvios que saturam · diâmetro (m)
-  d3: false, pitch: 60, ex: 1.5,  // modo 3D: ligado · inclinação (°) · exagero vertical
+  // Modo de visualização: "2d" (Leaflet) · "globe" (MapLibre na esfera, sem
+  // terreno, de cima) · "3d" (MapLibre com terreno, plano OU em globo).
+  mode: "globe",
+  d3: false,                      // derivado: MapLibre ligado (mode ≠ "2d") — ver readHash
+  pitch: 60, ex: 1.5,             // 3D: inclinação (°) · exagero vertical
   globe: false,                   // 3D em GLOBO (sem distorção de Mercator no zoom afastado)
   fov: 37,                        // campo de visão vertical do 3D (°; ~36,87 é o default do MapLibre)
   spd: 1,                         // multiplicador de velocidade do pad/teclado do 3D (×0,1–×10)
@@ -909,6 +928,16 @@ P.stack = DEFAULT_STACK.slice();
 P.lyOn = { osm: true, relevo: true, desenhos: true };
 P.lyOp = {};                       // id → % (ausente = op do catálogo / DEFAULT)
 
+// Visita nova (sem hash nenhum): abre no GLOBO (modo padrão) já afastado — a
+// América do Sul inteira — e com a faixa automática (a faixa fixa 700–1200 m
+// é da Serra do Mar e pintaria o continente quase todo de uma cor só).
+if (!location.hash.replace(/^#/, "")) {
+  // zoom em que o globo INTEIRO cabe na tela: no MapLibre o diâmetro é
+  // ~512·2^z3d/π px (z3d = z2d − 1) — iPhone (390 px) → z2, desktop → z3.
+  const fit = Math.floor(Math.log2((0.9 * Math.min(innerWidth, innerHeight) * Math.PI) / 512)) + 1;
+  Object.assign(DEFAULTS, { center: [-16, -56], zoom: Math.min(5, Math.max(1, fit)), auto: true });
+  Object.assign(P, { center: DEFAULTS.center, zoom: DEFAULTS.zoom, auto: true });
+}
 function readHash() {
   const h = new URLSearchParams(location.hash.replace(/^#/, ""));
   const num = (k, d) => { const v = parseFloat(h.get(k)); return Number.isFinite(v) ? v : d; };
@@ -929,7 +958,14 @@ function readHash() {
   if (SS_CHOICES.includes(ss)) P.ss = ss;
   P.ptlSd = Math.min(10, Math.max(0.1, num("psd", P.ptlSd)));
   P.ptlKernel = Math.min(3000, Math.max(30, num("pk", P.ptlKernel)));
-  P.d3 = h.get("3d") === "1";
+  // mode= explícito; link antigo (sem mode) com 3d=1 → 3D; link antigo SEM 3d
+  // era 2D (e continua 2D). Só a visita sem hash nenhum cai no padrão (globo).
+  const md = h.get("mode");
+  if (md === "2d" || md === "globe" || md === "3d") P.mode = md;
+  else if (h.get("3d") === "1") P.mode = "3d";
+  else if ([...h.keys()].length) P.mode = "2d";
+  else P.mode = DEFAULTS.mode;
+  P.d3 = P.mode !== "2d";
   P.globe = h.get("globe") === "1";
   P.pitch = Math.min(90, Math.max(0, num("pitch", P.pitch)));   // 0 = de cima · 90 = horizonte
   P.ex = Math.min(5, Math.max(1, num("ex", P.ex)));
@@ -992,7 +1028,8 @@ function commitHash() {
   q.set("ss", P.ss);
   q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
-  if (P.d3) { q.set("3d", "1"); q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); if (P.spd !== 1) q.set("spd", +P.spd.toFixed(2)); if (P.globe) q.set("globe", "1"); }
+  q.set("mode", P.mode);
+  if (P.mode === "3d") { q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); if (P.spd !== 1) q.set("spd", +P.spd.toFixed(2)); if (P.globe) q.set("globe", "1"); }
   // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
   const seq = P.stack.filter((id) => P.lyOn[id])
     .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
@@ -1388,7 +1425,7 @@ function updateProgress() {
     return;
   }
   if (indet) {
-    progLbl.textContent = statsInFlight ? "calculando a faixa da vista…" : "carregando o 3D…";
+    progLbl.textContent = statsInFlight ? "calculando a faixa da vista…" : (P.mode === "globe" ? "carregando o globo…" : "carregando o 3D…");
     return;
   }
   const done = progTotal - pending;
@@ -1935,7 +1972,11 @@ const CtMapButtons = L.Control.extend({
         '<svg class="loc-ico" viewBox="0 0 512 512" width="21" height="21" fill="currentColor" aria-hidden="true"><path d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>' +
       '</button>' +
       '<button id="btn-auto" class="map-btn" type="button" title="Faixa automática (segue a tela)" aria-label="Faixa automática" aria-pressed="false">A</button>' +
-      '<button id="btn-3d" class="map-btn" type="button" title="Modo 3D (terreno do DEM selecionado)" aria-label="Modo 3D" aria-pressed="false">3D</button>' +
+      '<div id="mode-seg" class="mode-seg" role="group" aria-label="Modo de visualização">' +
+        '<button type="button" data-mode="2d" title="Mapa 2D (plano; desenho e relevo colorido no navegador)" aria-label="Modo 2D" aria-pressed="false">2D</button>' +
+        '<button type="button" data-mode="globe" title="Globo (a Terra como esfera, sem distorção de Mercator)" aria-label="Modo globo" aria-pressed="false">🌐</button>' +
+        '<button type="button" data-mode="3d" title="Modo 3D (terreno do DEM selecionado)" aria-label="Modo 3D" aria-pressed="false">3D</button>' +
+      '</div>' +
       '<button id="btn-pencil" class="map-btn" type="button" title="Ferramentas de desenho" aria-label="Ferramentas de desenho" aria-pressed="false">' +
         '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="pointer-events:none"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>' +
       '</button>' +
@@ -2379,6 +2420,8 @@ function mountTerrain() {
   const dem = terrainDem();
   if (map3d.getTerrain()) map3d.setTerrain(null);
   if (map3d.getSource("dem")) map3d.removeSource("dem");
+  terrainDemOn = null;
+  if (!wantTerrain()) return;   // modo globo: sem terreno (nem pedidos de /terrain/)
   map3d.addSource("dem", {
     type: "raster-dem", encoding: "terrarium", tileSize: 256, maxzoom: TERRAIN_MAXZOOM[dem],
     tiles: [`${location.origin}/terrain/{z}/{x}/{y}.png?dem=${dem}&v=${TERRAIN_VERSION}`],
@@ -2443,7 +2486,7 @@ function sync3dLayers() {
     map3d.setPaintProperty(sid, "raster-opacity", w.opacity);
   }
   for (const w of want) map3d.moveLayer("r-" + w.id);   // ordem da pilha ⧉
-  if (terrainDemOn !== terrainDem()) mountTerrain();
+  if (terrainDemOn !== (wantTerrain() ? terrainDem() : null)) mountTerrain();
   // Com terreno, as camadas raster são pintadas em texturas cacheadas (RTT)
   // drapeadas na malha, e a "impressão digital" do cache só olha os TILES — mudar
   // só paint (opacidade) não invalidava: o 3D mostrava o valor ANTERIOR (0% →
@@ -2567,10 +2610,13 @@ function settleCamera() {
 // na GPU sobre a esfera — nada muda no servidor. O MapLibre volta sozinho pra
 // Mercator conforme o zoom aproxima (~z12), então o que muda é o zoom afastado,
 // justamente onde a distorção de Mercator é enorme.
+// Modo globo = sempre esfera; 3D = esfera só com o 🌐 do painel ligado.
+const wantGlobe = () => P.mode === "globe" || (P.mode === "3d" && P.globe);
+const wantTerrain = () => P.mode === "3d";   // o modo globo é SEM terreno (mais leve)
 function applyProjection() {
   $("btn-globe").setAttribute("aria-pressed", String(P.globe));
   if (!map3d || !map3dLoaded) return;
-  const want = P.globe ? "globe" : "mercator";
+  const want = wantGlobe() ? "globe" : "mercator";
   if ((map3d.getProjection()?.type || "mercator") !== want) {
     map3d.setProjection({ type: want });
     map3d.terrain?.tileManager?.freeRtt?.();
@@ -2582,10 +2628,34 @@ $("btn-globe").addEventListener("click", () => {
   applyProjection();
   writeHash();
 });
-async function set3d(on) {
-  P.d3 = on;
-  $("btn-3d").setAttribute("aria-pressed", String(on));
-  document.body.classList.toggle("mode3d", on);
+// Classes do body: mode3d = MapLibre ligado (some o que é só do 2D: zoom,
+// bússola, escala, desenho); mode-terrain = 3D de verdade (painel do 3D).
+function syncModeUi() {
+  for (const b of $("mode-seg").children) b.setAttribute("aria-pressed", String(b.dataset.mode === P.mode));
+  document.body.classList.toggle("mode3d", P.d3);
+  document.body.classList.toggle("mode-terrain", P.mode === "3d");
+  document.body.classList.toggle("mode-globe", P.mode === "globe");
+}
+// globo ↔ 3D com o MapLibre já de pé: terreno, projeção e inclinação. O globo
+// é visto DE CIMA (inclinação 0; dá pra inclinar com gesto); o 3D volta pra
+// inclinação dele (P.pitch).
+function applyMode3d() {
+  if (!map3d || !map3dLoaded) return;
+  if (P.mode !== "3d") {        // sai do 3D: solta pad/mouse/"no chão"
+    camStop();
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (walkOn) { walkOn = false; $("btn-walk").setAttribute("aria-pressed", "false"); syncWalkLabel(); }
+    centerLift = 0; lastGroundCam = 0;
+  }
+  mountTerrain();
+  applyProjection();
+  map3d.jumpTo({ pitch: P.mode === "3d" ? P.pitch : 0, elevation: P.mode === "3d" ? map3d.transform.elevation : 0 });
+  if (P.mode === "3d") { applyExaggeration(); applyFov(); settleCamera(); }
+}
+async function setMode(m) {
+  P.mode = m; P.d3 = m !== "2d";
+  const on = P.d3;
+  syncModeUi();
   writeHash();
   if (!on) {
     if (document.pointerLockElement) document.exitPointerLock();
@@ -2602,12 +2672,12 @@ async function set3d(on) {
   in3d = true;
   cancelDraw();
   syncEeLayers();            // tira as camadas de tile do Leaflet
-  if (map3d) return;
+  if (map3d) { applyMode3d(); return; }
   busy3d = true; updateProgress();
   try {
     await loadMapLibre();
   } catch (e) {
-    busy3d = false; toast("Não consegui carregar o 3D."); set3d(false); return;
+    busy3d = false; toast("Não consegui carregar o globo/3D."); setMode("2d"); return;
   }
   if (!P.d3 || map3d) return;   // desligou (ou religou) enquanto carregava
   const el = $("map3d");
@@ -2616,7 +2686,7 @@ async function set3d(on) {
   try {
     map3d = new maplibregl.Map({
       container: el, center: [c.lng, c.lat], zoom: map.getZoom() - 1,
-      bearing: -P.rot, pitch: P.pitch, maxPitch: 90, attributionControl: false,
+      bearing: -P.rot, pitch: P.mode === "3d" ? P.pitch : 0, maxPitch: 90, attributionControl: false,
       // Teto de 2× na densidade: a 3× (iPhone) o canvas com terreno tem
       // 1170×2532 px — GPU no talo, aquecimento e aba recarregada pelo Safari.
       pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
@@ -2632,7 +2702,7 @@ async function set3d(on) {
         // quadro da transição de paint (300 ms por padrão) e não se atualiza
         // durante ela — a opacidade ficava um passo ATRASADA (0% → opaco).
         version: 8, sources: {}, transition: { duration: 0, delay: 0 },
-        projection: { type: P.globe ? "globe" : "mercator" },
+        projection: { type: wantGlobe() ? "globe" : "mercator" },
         layers: [{ id: "fundo", type: "background", paint: { "background-color": "#0b0d10" } }],
         sky: { "sky-color": "#1b2430", "horizon-color": "#5a6675", "fog-color": "#0b0d10",
                "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.9,
@@ -2642,7 +2712,8 @@ async function set3d(on) {
       },
     });
   } catch (e) {               // sem WebGL etc.
-    map3d = null; busy3d = false; toast("3D indisponível neste navegador."); set3d(false); return;
+    // sem WebGL: o padrão (globo) cai no 2D, que funciona em qualquer navegador
+    map3d = null; busy3d = false; toast("Globo/3D indisponível neste navegador — ficando no 2D."); setMode("2d"); return;
   }
   map3d.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
   // botão direito arrasta = gira/inclina; sem o menu de contexto por cima
@@ -2656,7 +2727,7 @@ async function set3d(on) {
   map3d.on("moveend", () => {   // Leaflet acompanha (hash, auto, busca)
     if (camHeldSet.size || mouseLookOn()) return;   // pad/tecla/mouse ativo: jumpTo a cada quadro — sincroniza ao soltar
     const m = map3d.getCenter();
-    P.pitch = map3d.getPitch();
+    if (P.mode === "3d") P.pitch = map3d.getPitch();   // o globo (de cima) não mexe na inclinação do 3D
     sync3dGuard = true;
     map.setView([m.lat, m.lng], Math.round(map3d.getZoom() + 1), { animate: false });
     map.setBearing(-map3d.getBearing());
@@ -2820,7 +2891,7 @@ function typingIn(el) {
 }
 document.addEventListener("keydown", (e) => {
   const k = CAM_KEYS[e.code];
-  if (!k || !map3d || e.ctrlKey || e.metaKey || e.altKey || typingIn(e.target)) return;
+  if (!k || !map3d || P.mode !== "3d" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e.target)) return;
   e.preventDefault();
   if (!e.repeat) camPress(k);
 });
@@ -2867,7 +2938,7 @@ document.addEventListener("mousemove", (e) => {
 $("btn-mouselook").addEventListener("click", toggleMouseLook);
 $("btn-walk").addEventListener("click", () => setWalk(!walkOn));
 document.addEventListener("keydown", (e) => {
-  if (!map3d || e.ctrlKey || e.metaKey || e.altKey || e.repeat || typingIn(e.target)) return;
+  if (!map3d || P.mode !== "3d" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || typingIn(e.target)) return;
   if (e.code === "KeyM") { e.preventDefault(); toggleMouseLook(); }
   else if (e.code === "KeyG") { e.preventDefault(); setWalk(!walkOn); }
 });
@@ -2888,7 +2959,9 @@ map.on("moveend", () => {
   const c = map.getCenter();
   map3d.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() - 1 });
 });
-$("btn-3d").addEventListener("click", () => set3d(!P.d3));
+for (const b of $("mode-seg").children) {
+  b.addEventListener("click", () => { if (b.dataset.mode !== P.mode) setMode(b.dataset.mode); });
+}
 $("fov3d").addEventListener("input", (e) => {
   P.fov = Math.min(80, Math.max(5, parseFloat(e.target.value) || 37));
   applyFov(); writeHash();
@@ -2996,7 +3069,7 @@ $("ctl3d-more").addEventListener("click", () => {
 });
 // Botões de ícone (A, ⧉, 👁, …) só se explicavam pelo `title`, que no touch
 // nunca aparece: SEGURAR um botão mostra o título num toast (e não clica).
-const LP_SEL = ".map-btn, .leaflet-control-zoom a, .leaflet-control-rotate a, #panel-toggle, #layers-toggle";
+const LP_SEL = ".map-btn, .mode-seg button, .leaflet-control-zoom a, .leaflet-control-rotate a, #panel-toggle, #layers-toggle";
 let lpTimer = null, lpStart = null, lpFired = null;
 document.addEventListener("pointerdown", (e) => {
   if (e.pointerType !== "touch") return;
@@ -3044,8 +3117,8 @@ window.addEventListener("hashchange", () => {
   applyStackZ(); syncEeLayers(); rebuildLayersPanel();
   syncInputs(); updateLegend(); refreshTiles();
   if (P.auto) runAutoEstimate();
-  if (P.d3 !== !!map3d) set3d(P.d3);
-  else if (map3d) { map3d.setPitch(P.pitch); applyExaggeration(); applyFov(); applyProjection(); }
+  if (P.d3 !== !!map3d) setMode(P.mode);
+  else { syncModeUi(); applyMode3d(); }
 });
 
 // ── Estimador de custo desta sessão (R$) ───────────────────────────────────
@@ -3240,7 +3313,8 @@ map.addControl(new (L.Control.extend({
 }))());
 rebuildLayersPanel(); syncEeLayers();   // camadas ⧉ do hash (se houver)
 syncInputs(); updateLegend();
-if (P.d3) set3d(true);           // link aberto já em 3D
+syncModeUi();
+if (P.d3) setMode(P.mode);       // globo (padrão) ou link aberto já em 3D
 checkServerAwake();              // cold start → avisa na barra
 if (P.auto) runAutoEstimate();   // estimativa inicial pra vista de abertura
 
