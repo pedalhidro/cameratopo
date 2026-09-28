@@ -924,20 +924,22 @@ const EE_LAYERS = [
   // MTPI (índice de posição topográfica multiescala) — tiles XYZ PRONTOS de
   // telhas.pedalhidrografi.co, as mesmas camadas do amora (nada de EE aqui);
   // nativos até `zmax` (COP90 z10 / Paraná 30 m z12), acima o Leaflet reamplia.
+  // `hd`: tiles de DADO (sem rótulo) em densidade de tela — retina pede z+1 em
+  // ½ tamanho (2D: detectRetina; globo/3D: tileSize 128). Sem isso cada px do
+  // tile virava 3×3 no iPhone. São estáticos em CDN: 4× pedidos, custo ~0.
   { id: "mtpi-pindorama", label: "MTPI Pindorama 90m",
     xyz: "https://telhas.pedalhidrografi.co/mtpi_cop90_sa_full/{z}/{x}/{y}.png",
-    zmax: 10, attr: "MTPI COP90 · Pedal Hidrográfico", op: 100 },
+    zmax: 10, attr: "MTPI COP90 · Pedal Hidrográfico", op: 100, hd: true },
   { id: "mtpi-parana",    label: "MTPI Bacia do Paraná 30m",
     xyz: "https://telhas.pedalhidrografi.co/mtpi_bacia_parana_30/{z}/{x}/{y}.png",
-    zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100 },
-  // MTPI global (WebP no R2, nativo até z9). Sem CORS no bucket → só no 2D até
-  // liberar (no globo/3D o WebGL recusa imagem de outra origem sem CORS).
+    zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100, hd: true },
+  // MTPI global (WebP no R2 com CORS liberado, nativo até z9).
   { id: "mtpi-global-v1", label: "MTPI global v1",
     xyz: "https://pub-0a3053a2659e451495b312b1dcb9307c.r2.dev/v1/xyz/{z}/{x}/{y}.webp",
-    zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100 },
+    zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100, hd: true },
   { id: "mtpi-global-v2", label: "MTPI global v2",
     xyz: "https://pub-0a3053a2659e451495b312b1dcb9307c.r2.dev/v2/xyz/{z}/{x}/{y}.webp",
-    zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100 },
+    zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100, hd: true },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
   // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
@@ -1755,9 +1757,12 @@ function syncEeLayers() {
     if (on) {
       const url = eeLayerUrl(l.id);
       if (!ly) {
+        // hd em tela retina: o detectRetina do Leaflet soma 1 ao zoom da URL mas NÃO
+        // ao maxNativeZoom — sem o −1 o topo pediria zmax+1 (404 = buraco).
+        const hd = !!l.hd && L.Browser.retina;
         ly = eeLayerObjs[l.id] = new LeanTileLayer(url, {
-          pane: "ly-" + l.id, opacity: layerOpacity(l.id) / 100,
-          maxNativeZoom: l.zmax || 16, maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
+          pane: "ly-" + l.id, opacity: layerOpacity(l.id) / 100, detectRetina: hd,
+          maxNativeZoom: (l.zmax || 16) - (hd ? 1 : 0), maxZoom: 22, keepBuffer: 2, updateWhenZooming: false,
           updateWhenIdle: true,   // idem relevo: nada de tile varrido no arrasto
           attribution: l.attr || "Camadas · Google Earth Engine",
         });
@@ -2535,7 +2540,9 @@ function layers3d() {
     } else if (l.relief) {
       out.push({ id, tiles: [tileUrl(true)], maxzoom: RELIEF_MAX_NATIVE, opacity });
     } else {
-      out.push({ id, tiles: [absUrl(eeLayerUrl(id))], maxzoom: l.zmax || 16, opacity });
+      // hd: tileSize 128 → o MapLibre pede 1 zoom acima (tile na densidade da
+      // tela com pixelRatio 2); acima de maxzoom ele mesmo reamplia (sem 404)
+      out.push({ id, tiles: [absUrl(eeLayerUrl(id))], maxzoom: l.zmax || 16, opacity, tileSize: l.hd ? 128 : 256 });
     }
   }
   return out;
@@ -2600,7 +2607,7 @@ function sync3dLayers() {
   for (const w of want) {
     const sid = "r-" + w.id;
     if (!tiles3d.has(sid)) {
-      map3d.addSource(sid, { type: "raster", tiles: w.tiles, tileSize: 256, maxzoom: w.maxzoom });
+      map3d.addSource(sid, { type: "raster", tiles: w.tiles, tileSize: w.tileSize || 256, maxzoom: w.maxzoom });
       map3d.addLayer({ id: sid, type: "raster", source: sid,
         paint: { "raster-opacity": w.opacity, "raster-fade-duration": 150 } });
     } else if (tiles3d.get(sid) !== w.tiles[0]) {

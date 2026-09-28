@@ -53,7 +53,12 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   XYZ diretos, sem EE: os MTPI
   Pindorama 90m/Bacia do Paraná 30m (telhas.pedalhidrografi.co, os mesmos do
   amora — nativos até z10/z12 via `zmax`) e o MTPI global v1/v2 (WebP no R2
-  `pub-0a30…r2.dev`, nativo até z9, bucket SEM CORS → só no 2D até liberar).
+  `pub-0a30…r2.dev`, nativo até z9, CORS liberado). MTPI com `hd: true` =
+  densidade de tela: 2D `detectRetina` com `maxNativeZoom = zmax − 1` (o
+  Leaflet soma 1 ao zoom da URL e NÃO ao maxNativeZoom — sem o −1, 404 no
+  topo); globo/3D `tileSize: 128`. Sem isso, 3×3 px de tela por px de tile no
+  iPhone (borrado). Só em tile estático de DADO: camada EE/relevo em hd = 4×
+  renders no servidor; mapa com rótulo em hd = letra miúda.
   **XYZ personalizadas** ("＋ camada XYZ" no fim do ⧉): entram no catálogo com
   `custom: true`, id = "u" + FNV-1a da URL (estável, sem renumerar o `ly=`),
   moram no hash (`xyz=` rótulo|url|zmax, campos em encodeURIComponent) —
