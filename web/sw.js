@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const VERSION = "38";
+const VERSION = "39";
 const CACHE = `cameratopo-v${VERSION}`;
 
 const SHELL = [
@@ -23,6 +23,9 @@ const SHELL = [
   "vendor/leaflet/leaflet.css",
   "vendor/leaflet/leaflet.js",
   "vendor/leaflet-rotate/leaflet-rotate.js",
+  // globo é o modo PADRÃO: o MapLibre carrega em toda abertura → no shell
+  "vendor/maplibre-gl/maplibre-gl.js",
+  "vendor/maplibre-gl/maplibre-gl.css",
   "vendor/fonts/ibm-plex-mono-400.woff2",
   "vendor/fonts/ibm-plex-mono-500.woff2",
   "vendor/fonts/ibm-plex-mono-600.woff2",
