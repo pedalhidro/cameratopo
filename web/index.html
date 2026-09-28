@@ -570,6 +570,8 @@
     <button type="button" data-cam="down" title="Descer (altitude) (Z)" aria-label="Descer">⇩</button>
   </div>
   <div class="pad3d-cap"><span>mover · girar</span><span>incl.</span><span>alt.</span></div>
+  <button type="button" id="btn-globe" class="look-btn" aria-pressed="false"
+    title="Globo: a Terra como esfera — sem a distorção de Mercator no zoom afastado; perto do chão vira plano de novo">🌐 globo</button>
   <button type="button" id="ctl3d-more" class="look-btn" aria-expanded="false" aria-controls="ctl3d-extra">⚙ ajustes <span aria-hidden="true">▾</span></button>
   <div id="ctl3d-extra">
   <button type="button" id="btn-mouselook" class="look-btn" aria-pressed="false"
@@ -719,7 +721,10 @@
         relevo a 2 m (Q/Z mudam essa altura). O controle
         <b>Velocidade</b> (×0,1 a ×10) acelera/desacelera o pad e o teclado e ajusta o <b>exagero
         vertical</b> e o <b>campo de visão</b> (estreito achata a perspectiva,
-        como uma teleobjetiva; largo exagera a profundidade). Os desenhos ficam só no 2D. <b>👁</b> é o modo imersivo: esconde
+        como uma teleobjetiva; largo exagera a profundidade). <b>🌐 globo</b> mostra a
+        Terra como esfera — no zoom afastado as áreas ficam em tamanho real (sem
+        a Groenlândia do tamanho da África); chegando perto do chão ele vira
+        plano de novo sozinho. Os desenhos ficam só no 2D. <b>👁</b> é o modo imersivo: esconde
         todos os controles (só o olho fica, mesclado ao mapa); toque de novo
         pra voltar. Botões ficam <b>realçados</b> quando ativos.</p>
 
@@ -820,6 +825,7 @@ const DEFAULTS = {
   ss: 512,    // superamostragem no zoom afastado (px lidos/lado). Ver Ajuda.
   ptlSd: 2.0, ptlKernel: 1000,   // PTL: ±desvios que saturam · diâmetro (m)
   d3: false, pitch: 60, ex: 1.5,  // modo 3D: ligado · inclinação (°) · exagero vertical
+  globe: false,                   // 3D em GLOBO (sem distorção de Mercator no zoom afastado)
   fov: 37,                        // campo de visão vertical do 3D (°; ~36,87 é o default do MapLibre)
   spd: 1,                         // multiplicador de velocidade do pad/teclado do 3D (×0,1–×10)
 };
@@ -924,6 +930,7 @@ function readHash() {
   P.ptlSd = Math.min(10, Math.max(0.1, num("psd", P.ptlSd)));
   P.ptlKernel = Math.min(3000, Math.max(30, num("pk", P.ptlKernel)));
   P.d3 = h.get("3d") === "1";
+  P.globe = h.get("globe") === "1";
   P.pitch = Math.min(90, Math.max(0, num("pitch", P.pitch)));   // 0 = de cima · 90 = horizonte
   P.ex = Math.min(5, Math.max(1, num("ex", P.ex)));
   P.fov = Math.min(80, Math.max(5, num("fov", P.fov)));
@@ -985,7 +992,7 @@ function commitHash() {
   q.set("ss", P.ss);
   q.set("psd", P.ptlSd); q.set("pk", P.ptlKernel);
   if (Math.abs(P.rot) > 0.05) q.set("rot", P.rot.toFixed(1));
-  if (P.d3) { q.set("3d", "1"); q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); if (P.spd !== 1) q.set("spd", +P.spd.toFixed(2)); }
+  if (P.d3) { q.set("3d", "1"); q.set("pitch", Math.round(P.pitch)); q.set("ex", P.ex); q.set("fov", Math.round(P.fov)); if (P.spd !== 1) q.set("spd", +P.spd.toFixed(2)); if (P.globe) q.set("globe", "1"); }
   // Camadas ⧉: só quando difere do padrão (osm + relevo + desenhos).
   const seq = P.stack.filter((id) => P.lyOn[id])
     .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
@@ -2406,7 +2413,7 @@ function applyTileLod() {
 function applyFov() {
   if (map3d && map3d.setVerticalFieldOfView) {
     const tr = map3d.transform, c = tr.getCameraLngLat();
-    const target = { lng: c.lng, lat: c.lat, alt: tr.getCameraAltitude() };
+    const target = { lng: c.lng, lat: c.lat, alt: camAlt(tr) };
     map3d.setVerticalFieldOfView(P.fov);
     if (map3dLoaded) pinCamera(target);
   }
@@ -2507,11 +2514,23 @@ function groundUnderCamera(tr, T) {
   const m = T ? T.getElevationForLngLatZoom(ll, tr.zoom) : 0;
   return m !== 0 ? (lastGroundCam = m) : lastGroundCam;
 }
+// Altitude da câmera (m). No GLOBO o transform de perspectiva vertical devolve
+// null (MapLibre 5.24) — e null virava NaN no pinCamera → jumpTo({elevation: NaN})
+// → exceção dentro do MapLibre. O wrapper do globo mantém um transform Mercator
+// sincronizado (interno, daí o optional chaining): a altitude dele é a mesma
+// (medido: 36 840 × 36 980 m em z11), e perto do chão — onde o hook importa —
+// o globo já virou Mercator.
+function camAlt(tr) {
+  const a = tr.getCameraAltitude();
+  if (Number.isFinite(a)) return a;
+  const m = tr._mercatorTransform?.getCameraAltitude?.();
+  return Number.isFinite(m) ? m : NaN;
+}
 function keepCameraAboveGround(tr) {
   const T = map3d && map3d.terrain;
-  if (!T) return {};
+  if (!T || !Number.isFinite(camAlt(tr))) return {};
   const groundCam = groundUnderCamera(tr, T);
-  const above = tr.getCameraAltitude() - tr.elevation;          // = cos(pitch)·distância (m)
+  const above = camAlt(tr) - tr.elevation;          // = cos(pitch)·distância (m)
   if (walkOn) {
     const e = groundCam + walkH - above;
     return Math.abs(e - tr.elevation) > 0.05 ? { elevation: e } : {};
@@ -2544,6 +2563,25 @@ function settleCamera() {
   const d = keepCameraAboveGround(map3d.transform);
   if (d.elevation !== undefined) map3d.jumpTo({ elevation: d.elevation });
 }
+// Globo (MapLibre 5, projeção "globe"): os MESMOS tiles Web Mercator, reprojetados
+// na GPU sobre a esfera — nada muda no servidor. O MapLibre volta sozinho pra
+// Mercator conforme o zoom aproxima (~z12), então o que muda é o zoom afastado,
+// justamente onde a distorção de Mercator é enorme.
+function applyProjection() {
+  $("btn-globe").setAttribute("aria-pressed", String(P.globe));
+  if (!map3d || !map3dLoaded) return;
+  const want = P.globe ? "globe" : "mercator";
+  if ((map3d.getProjection()?.type || "mercator") !== want) {
+    map3d.setProjection({ type: want });
+    map3d.terrain?.tileManager?.freeRtt?.();
+    map3d.triggerRepaint();
+  }
+}
+$("btn-globe").addEventListener("click", () => {
+  P.globe = !P.globe;
+  applyProjection();
+  writeHash();
+});
 async function set3d(on) {
   P.d3 = on;
   $("btn-3d").setAttribute("aria-pressed", String(on));
@@ -2594,9 +2632,13 @@ async function set3d(on) {
         // quadro da transição de paint (300 ms por padrão) e não se atualiza
         // durante ela — a opacidade ficava um passo ATRASADA (0% → opaco).
         version: 8, sources: {}, transition: { duration: 0, delay: 0 },
+        projection: { type: P.globe ? "globe" : "mercator" },
         layers: [{ id: "fundo", type: "background", paint: { "background-color": "#0b0d10" } }],
         sky: { "sky-color": "#1b2430", "horizon-color": "#5a6675", "fog-color": "#0b0d10",
-               "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.9 },
+               "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.9,
+               // halo de atmosfera no globo visto de longe; some perto do chão
+               // (lá o céu/névoa acima já fazem o horizonte). Mercator ignora.
+               "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0] },
       },
     });
   } catch (e) {               // sem WebGL etc.
@@ -2605,7 +2647,7 @@ async function set3d(on) {
   map3d.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
   // botão direito arrasta = gira/inclina; sem o menu de contexto por cima
   map3d.getCanvasContainer().addEventListener("contextmenu", (e) => e.preventDefault());
-  map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); settleCamera(); });
+  map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); applyProjection(); settleCamera(); });
   map3d.on("dataloading", () => { if (!busy3d) { busy3d = true; updateProgress(); } });
   map3d.on("idle", () => {
     settleCamera();
@@ -2674,7 +2716,8 @@ function camMove(r, dt) {
     // o Δ vai inteiro pra altura do centro → movimento puramente vertical
     const tr = map3d.transform, T = map3d.terrain;
     const groundCam = groundUnderCamera(tr, T);
-    const h = tr.getCameraAltitude() - groundCam;
+    const h = camAlt(tr) - groundCam;
+    if (!Number.isFinite(h)) { map3d.jumpTo({ zoom: tr.zoom - r.alt * dt }); return; }   // sem altitude: zoom
     const dh = Math.max(CAM_CLEAR_M, h * 2 ** (r.alt * dt)) - h;
     const groundCenter = T ? T.getElevationForLngLatZoom(tr.center, tr.zoom) : 0;
     centerLift = tr.elevation + dh - groundCenter;   // o lift EFETIVO (já com a folga do hook)
@@ -2695,7 +2738,12 @@ function lookAround(dPitch, dBearing) {
   const tr = map3d.transform, T = map3d.terrain;
   if (!lookAnchor) {
     const c0 = tr.getCameraLngLat();
-    lookAnchor = { lng: c0.lng, lat: c0.lat, alt: tr.getCameraAltitude() };
+    lookAnchor = { lng: c0.lng, lat: c0.lat, alt: camAlt(tr) };
+  }
+  if (!Number.isFinite(lookAnchor.alt)) {   // sem altitude: gira/inclina orbitando (nativo)
+    lookAnchor = null;
+    map3d.jumpTo({ pitch: Math.min(map3d.getMaxPitch(), Math.max(0, tr.pitch + dPitch)), bearing: tr.bearing + dBearing });
+    return;
   }
   const cam = lookAnchor, alt = lookAnchor.alt;
   const R = 6371008.8, rad = Math.PI / 180;
@@ -2725,7 +2773,8 @@ function lookAround(dPitch, dBearing) {
 function pinCamera(target) {
   const T = map3d.terrain;
   for (let pass = 0; pass < 3; pass++) {
-    const tr = map3d.transform, got = tr.getCameraLngLat(), gotAlt = tr.getCameraAltitude();
+    const tr = map3d.transform, got = tr.getCameraLngLat(), gotAlt = camAlt(tr);
+    if (!Number.isFinite(gotAlt) || !Number.isFinite(target.alt)) return;   // sem altitude confiável: não mexe
     const dLng = got.lng - target.lng, dLat = got.lat - target.lat, dAlt = gotAlt - target.alt;
     if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7 && Math.abs(dAlt) < 0.05) return;
     const center = [tr.center.lng - dLng, tr.center.lat - dLat], elevation = tr.elevation - dAlt;
@@ -2996,7 +3045,7 @@ window.addEventListener("hashchange", () => {
   syncInputs(); updateLegend(); refreshTiles();
   if (P.auto) runAutoEstimate();
   if (P.d3 !== !!map3d) set3d(P.d3);
-  else if (map3d) { map3d.setPitch(P.pitch); applyExaggeration(); applyFov(); }
+  else if (map3d) { map3d.setPitch(P.pitch); applyExaggeration(); applyFov(); applyProjection(); }
 });
 
 // ── Estimador de custo desta sessão (R$) ───────────────────────────────────

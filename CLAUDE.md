@@ -138,7 +138,13 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   jumpTo vazio faria loop move→idle). Sem isso, em 90° a câmera ficava na
   altura do chão do alvo, dentro do relevo exagerado. FOV mexe no LOD dos tiles: `applyTileLod` ajusta
   `setSourceTileLodParams` pra penalidade de tile inclinado ficar = 1 em
-  qualquer FOV (senão 5° pedia tiles 1–2 zooms abaixo = borrado). Estilo com `transition: {duration: 0}` + 
+  qualquer FOV (senão 5° pedia tiles 1–2 zooms abaixo = borrado). **Globo**
+  (🌐, hash `globe=1`): `setProjection({type: "globe"})` do MapLibre 5 — os
+  mesmos tiles Mercator reprojetados na GPU, nada no servidor; volta a
+  Mercator sozinho perto do chão (~z12). No globo `getCameraAltitude()` devolve
+  NULL (MapLibre 5.24): TODA leitura de altitude passa por `camAlt(tr)` (cai
+  pro `_mercatorTransform` interno, que fica sincronizado) — null virava NaN no
+  `pinCamera` → `jumpTo({elevation: NaN})` → exceção no `_calcMatrices`. Estilo com `transition: {duration: 0}` + 
   `freeRtt()` após mudar paint: com terreno as camadas viram textura cacheada
   (RTT) capturada no 1º quadro da transição — a opacidade ficava um passo
   atrasada.
