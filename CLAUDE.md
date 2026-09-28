@@ -154,6 +154,9 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   --service-account cameratopo-ee@pedal-hidrografico.iam.gserviceaccount.com`
   — a SA é o que dá ADC com acesso ao EE pra fonte `dem=ee`).
   Sem auth por design (igual ao resto do ecossistema).
+  **CI/CD**: `.github/workflows/deploy.yml` roda esse MESMO comando a cada push
+  na `main` (WIF sem chave, SA `gh-deploy`; inerte até o setup do cabeçalho
+  do arquivo). Mudou um flag do deploy → mude nos DOIS lugares.
 
 ## Invariantes do render — NÃO regredir (cada um já foi bug)
 

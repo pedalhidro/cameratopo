@@ -1,0 +1,85 @@
+# Deploy automático pro Cloud Run (cameratopo.pedalhidrografi.co) a cada push
+# na `main`. Mesmos flags do deploy manual do CLAUDE.md — mudou um (cpu/memória,
+# max-instances…), mude AQUI também (e o COST.vcpu/memGib do index.html).
+#
+# Autenticação SEM CHAVE (Workload Identity Federation), igual amora/simujaules:
+# o runner troca o token OIDC do GitHub por um token curto do GCP via o SA
+# compartilhado `gh-deploy` (já tem run.admin, cloudbuild, artifactregistry,
+# storage, serviceAccountUser no projeto). Nenhum segredo no repo. Fica INERTE
+# (job "skipped") até o setup abaixo definir as variáveis.
+#
+# ── Setup único (LOCAL, com gcloud+gh autenticados) ──────────────────────────
+# PROJECT=pedal-hidrografico
+# SA=gh-deploy@$PROJECT.iam.gserviceaccount.com
+# POOL=projects/612286740034/locations/global/workloadIdentityPools/github
+# gcloud iam workload-identity-pools providers create-oidc github-oidc-cameratopo \
+#   --project=$PROJECT --location=global --workload-identity-pool=github \
+#   --display-name="GitHub OIDC cameratopo" \
+#   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+#   --attribute-condition="assertion.repository=='pedalhidro/cameratopo'" \
+#   --issuer-uri="https://token.actions.githubusercontent.com"
+# gcloud iam service-accounts add-iam-policy-binding $SA --project=$PROJECT \
+#   --role=roles/iam.workloadIdentityUser \
+#   --member="principalSet://iam.googleapis.com/$POOL/attribute.repository/pedalhidro/cameratopo"
+# gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --repo pedalhidro/cameratopo \
+#   --body "$POOL/providers/github-oidc-cameratopo"
+# gh variable set GCP_DEPLOY_SA --repo pedalhidro/cameratopo --body "$SA"
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    # Pushes que SÓ mexem nestes caminhos não redeployam (o container não os leva).
+    paths-ignore:
+      - '**.md'
+      - 'tools/**'
+      - 'assets/**'
+      - 'ee-cameratopo.js'
+      - '.vscode/**'
+      - '.github/**'
+  workflow_dispatch: {}   # botão de deploy manual na aba Actions
+
+# Serializa deploys: push novo espera o anterior (cancelar o Cloud Build no
+# meio deixaria a revisão pela metade).
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+    permissions:
+      contents: read
+      id-token: write   # necessário pro OIDC do WIF
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checagem rápida
+        run: python -m py_compile server.py render.py ee_source.py
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Deploy (Cloud Build + Cloud Run)
+        run: |
+          gcloud run deploy cameratopo --source . \
+            --project pedal-hidrografico --region southamerica-east1 \
+            --allow-unauthenticated --cpu 2 --memory 1Gi \
+            --min-instances 0 --max-instances 10 --concurrency 40 \
+            --service-account cameratopo-ee@pedal-hidrografico.iam.gserviceaccount.com \
+            --quiet
+
+      - name: Smoke test
+        run: |
+          for p in /health / ; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 \
+              "https://cameratopo.pedalhidrografi.co$p")
+            echo "$p → $code"; [ "$code" = 200 ] || exit 1
+          done
