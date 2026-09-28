@@ -132,6 +132,23 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .layer-row input[type="range"] { width: 64px; flex: 0 0 auto; margin: 0; }
+  .ly-del {
+    flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; cursor: pointer;
+    background: var(--seg-bg); color: var(--panel-muted); font-size: 13px; line-height: 1;
+  }
+  #xyz-add { margin-top: 6px; font-size: 11px; }
+  #xyz-add summary { cursor: pointer; font-weight: 700; color: var(--accent); padding: 4px 0; }
+  #xyz-form { display: grid; gap: 6px; margin-top: 4px; }
+  #xyz-form input[type="text"], #xyz-form input[type="url"] {
+    width: 100%; padding: 6px 9px; font-size: 12px; color: var(--panel-fg);
+    background: var(--field-bg); border: 1px solid var(--field-line); border-radius: 9px;
+  }
+  .xyz-line { display: flex; align-items: center; gap: 6px; }
+  .xyz-line label { font-size: 10.5px; color: var(--panel-muted); white-space: nowrap; }
+  .xyz-line input { width: 58px !important; }
+  .xyz-line button { margin-left: auto; }
+  .xyz-hint { margin: 0; font-size: 10px; color: var(--panel-muted); line-height: 1.4; }
+  .xyz-hint code { font-size: 10px; }
   .layer-row.loading .ly-name::after { content: " ⏳"; animation: ly-pulse 1.1s infinite; }
   @keyframes ly-pulse { 50% { opacity: 0.25; } }
   @media (max-width: 640px) {
@@ -546,6 +563,7 @@
     .ly-move button { width: 32px; height: 34px; font-size: 10px; border-radius: 6px; }
     .layer-row input[type="checkbox"] { width: 22px; height: 22px; }
     .layer-row .ly-name { font-size: 12px; }
+    .ly-del { width: 32px; height: 34px; font-size: 16px; }
     .pad3d button { height: 40px; font-size: 16px; }
     .draw-pop-del { width: 36px; height: 36px; }
     .seg button { padding: 8px 6px; }
@@ -610,6 +628,19 @@
 <aside id="layers-panel" class="collapsed" aria-label="Camadas do mapa">
   <div class="brand"><h1>Camadas</h1></div>
   <div id="layer-rows"></div>
+  <details id="xyz-add">
+    <summary>＋ camada XYZ</summary>
+    <form id="xyz-form" autocomplete="off">
+      <input id="xyz-name" type="text" maxlength="60" placeholder="Nome (opcional)" aria-label="Nome da camada">
+      <input id="xyz-url" type="url" required placeholder="https://…/{z}/{x}/{y}.png" aria-label="URL dos tiles XYZ">
+      <div class="xyz-line">
+        <label for="xyz-zmax">zoom máx. nativo</label>
+        <input id="xyz-zmax" type="number" min="0" max="22" value="18" inputmode="numeric">
+        <button type="submit" class="act primary">Adicionar</button>
+      </div>
+      <p class="xyz-hint">Tiles XYZ públicos em https, com <code>{z}</code>, <code>{x}</code> e <code>{y}</code>. Acima do zoom máx. o mapa reamplia. No globo/3D o servidor dos tiles precisa liberar CORS. A camada vai junto no link.</p>
+    </form>
+  </details>
   <div class="grip" role="separator" aria-label="Redimensionar painel" title="Arraste para redimensionar"></div>
 </aside>
 
@@ -703,12 +734,15 @@
         aridez, densidade populacional, eleições 2022, cobertura 3G, elevação,
         declives, Posição Topográfica Local, detector de desmorrodouros e rios
         livres (HydroSHEDS) — mais o <b>MTPI</b> (índice de posição topográfica
-        multiescala, tiles prontos do amora: Pindorama 90m/COP90 e Bacia do
-        Paraná 30m), os mapas base (OpenStreetMap, Satélite,
+        multiescala, tiles prontos do amora: Pindorama 90m/COP90, Bacia do
+        Paraná 30m e o global v1/v2), os mapas base (OpenStreetMap, Satélite,
         Híbrido) logo abaixo do <b>Relevo</b>, as camadas temáticas no fundo
         (suba com ▲ pra ver por cima) e os seus <i>Desenhos</i> no topo.
         Cada linha tem <b>▲▼</b> (ordem de empilhamento),
-        <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. As camadas de
+        <b>caixa</b> (mostrar/ocultar) e <b>opacidade</b>. Em <b>＋ camada XYZ</b>
+        (fim do painel) você adiciona qualquer tile XYZ público (https, com
+        <code>{z}/{x}/{y}</code>): ela entra acima do relevo, vai junto no link e sai
+        no <b>×</b> da linha — no globo/3D o servidor dos tiles precisa liberar CORS. As camadas de
         elevação/declive/PTL seguem os parâmetros do painel ☰ (inclusive a
         faixa automática). São renderizadas pelo Earth Engine — a primeira carga de
         uma camada pesada pode demorar alguns segundos.</p>
@@ -896,6 +930,14 @@ const EE_LAYERS = [
   { id: "mtpi-parana",    label: "MTPI Bacia do Paraná 30m",
     xyz: "https://telhas.pedalhidrografi.co/mtpi_bacia_parana_30/{z}/{x}/{y}.png",
     zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100 },
+  // MTPI global (WebP no R2, nativo até z9). Sem CORS no bucket → só no 2D até
+  // liberar (no globo/3D o WebGL recusa imagem de outra origem sem CORS).
+  { id: "mtpi-global-v1", label: "MTPI global v1",
+    xyz: "https://pub-0a3053a2659e451495b312b1dcb9307c.r2.dev/v1/xyz/{z}/{x}/{y}.webp",
+    zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100 },
+  { id: "mtpi-global-v2", label: "MTPI global v2",
+    xyz: "https://pub-0a3053a2659e451495b312b1dcb9307c.r2.dev/v2/xyz/{z}/{x}/{y}.webp",
+    zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100 },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
   // desenhos (● ╱ ⬠) — topo da pilha; opacidade/visibilidade do pane inteiro
@@ -913,6 +955,52 @@ const DEFAULT_STACK = [
   ...TOP_OVERLAYS,
 ];
 const LAYER_BY_ID = Object.fromEntries(EE_LAYERS.map((l) => [l.id, l]));
+
+// ── Camadas XYZ PERSONALIZADAS (painel ⧉ → "＋ camada XYZ") ──────────────────
+// Entram no catálogo como as `xyz` fixas (custom: true). Moram no HASH (`xyz=`:
+// rótulo|url|zmax por camada, campos em encodeURIComponent, camadas separadas
+// por vírgula) — um link compartilhado leva as camadas junto. id = "u" + hash
+// da URL: estável (remover uma não renumera as outras nem o ly=) e sem
+// duplicata. Só https (http seria bloqueado como conteúdo misto) com
+// {z}/{x}/{y}. O rótulo vem de link alheio → SEMPRE escapado no HTML (esc).
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const XYZ_OK = (u) => /^https:\/\/[^\s]+$/.test(u) && ["{z}", "{x}", "{y}"].every((k) => u.includes(k));
+function customId(url) {   // FNV-1a 32 bits → base36
+  let h = 0x811c9dc5;
+  for (let i = 0; i < url.length; i++) { h ^= url.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return "u" + h.toString(36);
+}
+const customLayers = () => EE_LAYERS.filter((l) => l.custom);
+function parseCustom(spec) {
+  const out = [];
+  for (const t of (spec || "").split(",")) {
+    const [label, url, zmax] = t.split("|").map((v) => { try { return decodeURIComponent(v || ""); } catch (e) { return ""; } });
+    if (!XYZ_OK(url) || out.some((c) => c.url === url)) continue;
+    const z = parseInt(zmax, 10);
+    out.push({ label: (label || new URL(url.replace(/[{}]/g, "")).hostname).slice(0, 60), url, zmax: Number.isFinite(z) ? Math.min(22, Math.max(0, z)) : 18 });
+  }
+  return out;
+}
+const customSpec = () => customLayers()
+  .map((l) => [l.label, l.xyz, l.zmax].map((v) => encodeURIComponent(String(v))).join("|")).join(",");
+// Troca as personalizadas do catálogo pela lista (objetos de mapa velhos são
+// podados no syncEeLayers — aqui é cedo demais pra tocar no mapa).
+function setCustomLayers(list) {
+  for (let i = EE_LAYERS.length - 1; i >= 0; i--) {
+    if (EE_LAYERS[i].custom) { delete LAYER_BY_ID[EE_LAYERS[i].id]; EE_LAYERS.splice(i, 1); }
+  }
+  for (const c of list) {
+    const l = { id: customId(c.url), label: c.label, xyz: c.url, zmax: c.zmax,
+                attr: new URL(c.url.replace(/[{}]/g, "")).hostname, op: 100, custom: true };
+    EE_LAYERS.push(l); LAYER_BY_ID[l.id] = l;
+  }
+}
+// Pilha-molde: a padrão com as personalizadas logo ABAIXO dos overlays do topo
+// (acima do relevo — quem adiciona uma camada quer vê-la).
+function stackTemplate() {
+  const i = DEFAULT_STACK.indexOf(TOP_OVERLAYS[0]);
+  return [...DEFAULT_STACK.slice(0, i), ...customLayers().map((l) => l.id), ...DEFAULT_STACK.slice(i)];
+}
 const DEFAULT_LAYER_OPACITY = 100;  // % — camadas extras (relevo usa P.opacity)
 
 // Sem restrição de zoom: o servidor decide o que consegue renderizar (relevo
@@ -975,7 +1063,8 @@ function readHash() {
   // ly= camadas VISÍVEIS, fundo→topo, `id:opacidade%` (relevo sem %, usa op=).
   // Ausente → só o relevo, pilha padrão. As ocultas ficam embaixo na ordem
   // padrão (posição de camada invisível não muda o visual; só a lista).
-  P.stack = DEFAULT_STACK.slice();
+  setCustomLayers(parseCustom(h.get("xyz")));   // ANTES do ly= (que as referencia)
+  P.stack = stackTemplate();
   P.lyOn = { osm: true, relevo: true, desenhos: true };
   P.lyOp = {};
   // compat: links antigos com base=satellite (antes do painel ⧉ ter as bases)
@@ -993,8 +1082,9 @@ function readHash() {
     // As VISÍVEIS ocupam, na ordem do link, as posições que teriam na pilha
     // padrão; as ocultas ficam no lugar padrão. (Antes as ocultas iam todas pro
     // fundo — abaixo do relevo — e ligar uma temática depois não mostrava nada.)
-    const slots = DEFAULT_STACK.map((id, i) => (on[id] ? i : -1)).filter((i) => i >= 0);
-    P.stack = DEFAULT_STACK.slice();
+    const tpl = stackTemplate();
+    const slots = tpl.map((id, i) => (on[id] ? i : -1)).filter((i) => i >= 0);
+    P.stack = tpl;
     slots.forEach((i, k) => { P.stack[i] = order[k]; });
   }
 }
@@ -1035,6 +1125,8 @@ function commitHash() {
     .map((id) => id === "relevo" ? "relevo" : `${id}:${layerOpacity(id)}`)
     .join(",");
   if (seq !== DEFAULT_LY_SEQ) q.set("ly", seq);
+  const xyz = customSpec();
+  if (xyz) q.set("xyz", xyz);
   history.replaceState(null, "", "#" + q.toString());
 }
 function writeHash() {
@@ -1080,8 +1172,11 @@ const map = L.map("map", {
 // ficava parado enquanto só bússola e marcador giravam ("mapa não gira").
 const rotPane = map.getPane("rotatePane");
 for (const l of EE_LAYERS) map.createPane("ly-" + l.id, rotPane || undefined);
-function applyStackZ() {
-  P.stack.forEach((id, i) => { map.getPane("ly-" + id).style.zIndex = String(210 + i); });
+function applyStackZ() {   // (pane sob demanda: camada personalizada nasce depois do boot)
+  P.stack.forEach((id, i) => {
+    const pn = map.getPane("ly-" + id) || map.createPane("ly-" + id, rotPane || undefined);
+    pn.style.zIndex = String(210 + i);
+  });
 }
 applyStackZ();
 function layerOpacity(id) {
@@ -1619,6 +1714,13 @@ function setRowLoading(id, on) {
 }
 // Reconcilia o mapa com o estado (ligadas, URLs, opacidades). Idempotente.
 function syncEeLayers() {
+  // poda: camada personalizada removida (ou trocada) — objeto de mapa órfão
+  for (const id of Object.keys(eeLayerObjs)) {
+    const l = LAYER_BY_ID[id], ly = eeLayerObjs[id];
+    if (l && (!l.custom || ly._src === l.xyz + "|" + l.zmax)) continue;
+    if (map.hasLayer(ly)) map.removeLayer(ly);
+    delete eeLayerObjs[id];
+  }
   for (const l of EE_LAYERS) {
     if (l.draw) {          // desenhos: visibilidade/opacidade do pane inteiro
       const pane = map.getPane("ly-" + l.id);
@@ -1659,6 +1761,7 @@ function syncEeLayers() {
           updateWhenIdle: true,   // idem relevo: nada de tile varrido no arrasto
           attribution: l.attr || "Camadas · Google Earth Engine",
         });
+        ly._src = l.xyz + "|" + l.zmax;
         wireLoading(ly, l.id);
         if (!/^https?:/.test(url)) trackTiles(ly, "ly");   // só o que o NOSSO servidor renderiza
       } else if (ly._url !== url) ly.setUrl(url);
@@ -1683,13 +1786,15 @@ function rebuildLayersPanel() {
     row.dataset.id = id;
     row.innerHTML =
       '<span class="ly-move">' +
-        `<button type="button" title="Empilhar acima" aria-label="Empilhar ${l.label} acima"${di === 0 ? " disabled" : ""}>▲</button>` +
-        `<button type="button" title="Empilhar abaixo" aria-label="Empilhar ${l.label} abaixo"${di === top.length - 1 ? " disabled" : ""}>▼</button>` +
+        `<button type="button" title="Empilhar acima" aria-label="Empilhar ${esc(l.label)} acima"${di === 0 ? " disabled" : ""}>▲</button>` +
+        `<button type="button" title="Empilhar abaixo" aria-label="Empilhar ${esc(l.label)} abaixo"${di === top.length - 1 ? " disabled" : ""}>▼</button>` +
       "</span>" +
-      `<input type="checkbox"${P.lyOn[id] ? " checked" : ""} aria-label="Mostrar ${l.label}">` +
-      `<span class="ly-name">${l.label}</span>` +
-      `<input type="range" min="0" max="100" step="1" value="${layerOpacity(id)}" aria-label="Opacidade — ${l.label}">`;
+      `<input type="checkbox"${P.lyOn[id] ? " checked" : ""} aria-label="Mostrar ${esc(l.label)}">` +
+      `<span class="ly-name"${l.custom ? ` title="${esc(l.xyz)}"` : ""}>${esc(l.label)}</span>` +
+      `<input type="range" min="0" max="100" step="1" value="${layerOpacity(id)}" aria-label="Opacidade — ${esc(l.label)}">` +
+      (l.custom ? `<button type="button" class="ly-del" title="Remover camada" aria-label="Remover ${esc(l.label)}">×</button>` : "");
     const [up, down] = row.querySelectorAll(".ly-move button");
+    row.querySelector(".ly-del")?.addEventListener("click", () => removeCustomLayer(id));
     up.addEventListener("click", () => moveLayer(id, +1));
     down.addEventListener("click", () => moveLayer(id, -1));
     row.querySelector("input[type=checkbox]").addEventListener("change", (e) => {
@@ -1710,6 +1815,25 @@ function rebuildLayersPanel() {
     });
     box.appendChild(row);
   });
+}
+function addCustomLayer(label, url, zmax) {
+  const list = customLayers().map((l) => ({ label: l.label, url: l.xyz, zmax: l.zmax }));
+  const id = customId(url);
+  if (LAYER_BY_ID[id]) { P.lyOn[id] = true; syncEeLayers(); rebuildLayersPanel(); writeHash(); return false; }
+  list.push({ label, url, zmax });
+  setCustomLayers(list);
+  const i = P.stack.indexOf(TOP_OVERLAYS[0]);          // logo abaixo de rios/desenhos
+  P.stack.splice(i < 0 ? P.stack.length : i, 0, id);
+  P.lyOn[id] = true;
+  applyStackZ(); syncEeLayers(); rebuildLayersPanel(); writeHash();
+  return true;
+}
+function removeCustomLayer(id) {
+  setCustomLayers(customLayers().filter((l) => l.id !== id)
+    .map((l) => ({ label: l.label, url: l.xyz, zmax: l.zmax })));
+  P.stack = P.stack.filter((x) => x !== id);
+  delete P.lyOn[id]; delete P.lyOp[id];
+  syncEeLayers(); rebuildLayersPanel(); writeHash();
 }
 function moveLayer(id, dir) {   // +1 = em direção ao topo
   const i = P.stack.indexOf(id), j = i + dir;
@@ -2652,6 +2776,7 @@ function applyMode3d() {
   map3d.jumpTo({ pitch: P.mode === "3d" ? P.pitch : 0, elevation: P.mode === "3d" ? map3d.transform.elevation : 0 });
   if (P.mode === "3d") { applyExaggeration(); applyFov(); settleCamera(); }
 }
+const corsWarned = new Set();
 async function setMode(m) {
   P.mode = m; P.d3 = m !== "2d";
   const on = P.d3;
@@ -2720,6 +2845,14 @@ async function setMode(m) {
   map3d.getCanvasContainer().addEventListener("contextmenu", (e) => e.preventDefault());
   map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); applyProjection(); settleCamera(); });
   map3d.on("dataloading", () => { if (!busy3d) { busy3d = true; updateProgress(); } });
+  // Tile XYZ de outra origem SEM CORS: o <img> do 2D carrega, mas o WebGL recusa
+  // a textura — status 0 (404 de fora da cobertura é status 404 e não avisa).
+  map3d.on("error", (e) => {
+    const sid = e.sourceId || "", l = LAYER_BY_ID[sid.replace(/^r-/, "")];
+    if (!l || !l.xyz || corsWarned.has(l.id) || (e.error && e.error.status !== 0)) return;
+    corsWarned.add(l.id);
+    toast(`“${l.label}” não carregou no globo/3D — o servidor dos tiles não libera CORS (ou sem rede); no 2D funciona`);
+  });
   map3d.on("idle", () => {
     settleCamera();
     if (busy3d) { busy3d = false; updateProgress(); }
@@ -2979,6 +3112,18 @@ $("btn-help").addEventListener("click", openHelp);
 $("help-close").addEventListener("click", closeHelp);
 helpModal.addEventListener("click", (e) => { if (e.target === helpModal) closeHelp(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !helpModal.hidden) closeHelp(); });
+
+// Formulário "＋ camada XYZ" do painel ⧉
+$("xyz-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const url = $("xyz-url").value.trim();
+  if (!XYZ_OK(url)) { toast("URL precisa ser https e ter {z}, {x} e {y}"); return; }
+  const z = parseInt($("xyz-zmax").value, 10);
+  const name = $("xyz-name").value.trim() || new URL(url.replace(/[{}]/g, "")).hostname;
+  const added = addCustomLayer(name.slice(0, 60), url, Number.isFinite(z) ? Math.min(22, Math.max(0, z)) : 18);
+  toast(added ? `Camada “${name.slice(0, 60)}” adicionada` : "Essa URL já está nas camadas — religada");
+  $("xyz-url").value = ""; $("xyz-name").value = "";
+});
 
 // ── Toggles dos painéis (☰ controles / ⧉ camadas) — mutuamente exclusivos ────
 function syncSheetOpen() {   // folha aberta (celular) esconde o painel do 3D

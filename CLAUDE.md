@@ -52,7 +52,17 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   camadas de tile. Camadas do painel ⧉ com campo `xyz` no catálogo são tiles
   XYZ diretos, sem EE: os MTPI
   Pindorama 90m/Bacia do Paraná 30m (telhas.pedalhidrografi.co, os mesmos do
-  amora — nativos até z10/z12 via `zmax`). É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
+  amora — nativos até z10/z12 via `zmax`) e o MTPI global v1/v2 (WebP no R2
+  `pub-0a30…r2.dev`, nativo até z9, bucket SEM CORS → só no 2D até liberar).
+  **XYZ personalizadas** ("＋ camada XYZ" no fim do ⧉): entram no catálogo com
+  `custom: true`, id = "u" + FNV-1a da URL (estável, sem renumerar o `ly=`),
+  moram no hash (`xyz=` rótulo|url|zmax, campos em encodeURIComponent) —
+  `setCustomLayers` ANTES do `ly=` no readHash; pilha-molde (`stackTemplate`)
+  as põe logo abaixo de rios/desenhos; pane criado sob demanda (`applyStackZ`);
+  objeto órfão podado no `syncEeLayers`. Só https com {z}{x}{y}. Rótulo vem de
+  link alheio → SEMPRE `esc()` no HTML do painel. No globo/3D tile XYZ de outra
+  origem sem CORS falha no WebGL (o `<img>` do 2D não liga): erro de fonte com
+  status 0 → toast uma vez por camada. É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
   stale-while-revalidate; tiles/stats SÓ rede) + ícones renderizados pelo
   próprio render.py. **Bump do `VERSION` do sw.js em QUALQUER mudança de
   arquivo servido** (convenção do workspace) — além do par
