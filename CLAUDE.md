@@ -223,8 +223,23 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   com z11+ e com o EE. Arquivos do EE: `<nome><linha>-<coluna>.tif` (SEM hífen
   depois do nome). Terreno 3D idem. Nomes dos arquivos = offsets em px do EE a partir da origem NO
   do tier. Mudou o tier → bumpe RENDER/TILE_VERSION e TERRAIN_VERSION.
+- **Lacuna Armênia/Azerbaijão** (25 células): o GLO-30 PÚBLICO — base do FABDEM
+  e do `COPERNICUS/DEM/GLO30` do EE — exclui os dois países. O bucket do R2 tem
+  COP30 (DSM, não bare-earth) com o MESMO nome/grid dos FABDEM, listado na seção
+  `# gap-cop30` do `fabdem_cells.txt` (fim do arquivo). z ≥ 9, terreno e /stats
+  nativo já leem; o tier de 500 m (z ≤ 8) ganha um REMENDO só da lacuna:
+  `tools/patch_tier_gap.py` calcula LOCAL, dos COGs do R2, um COG pequeno no
+  mesmo grid (`TIERS[…]["patches"]`, listado ANTES dos arquivos principais — o
+  mosaico pega o 1º pixel válido; fora da lacuna é nodata). Conferido numa
+  célula FABDEM contra o tier do EE: elev |Δ| 0,25 m, declividade razão 0,999.
+  Remendo novo: `ready: False` até o arquivo estar no bucket (senão
+  DEMReadError), depois `ready: True` + bump RENDER/TILE_VERSION +
+  TERRAIN_VERSION. (Reexportar o globo com `GAP=gs://…` no
+  `export_fabdem_tier.py` também serve, mas é o globo inteiro.) A fonte `ee` segue
+  sem os dois países (o EE não tem o dado). Emenda FABDEM↔COP30: degrau leve de
+  textura (DSM × DTM, ~2× o |Δ| interior na linha da borda), sem desnível.
 - **Mar = 0 m, falha ≠ mar** (FABDEM e EE): célula 1°×1° fora de
-  `fabdem_cells.txt` (lista da coleção do EE; está no COPY do Dockerfile) é mar
+  `fabdem_cells.txt` (lista da coleção do EE + lacuna COP30; está no COPY do Dockerfile) é mar
   → 0 m sem pedido; nodata dentro de célula/tier também. COG que EXISTE e não
   leu → `DEMReadError` → resposta SEM cache (field 503, PNG transparente
   max-age 60). Nunca cachear falha como vazio/mar (ficaria 7 dias).

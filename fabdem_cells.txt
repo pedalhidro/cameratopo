@@ -19012,3 +19012,33 @@ S58W027
 S59W027
 S60W027
 S60W028
+# gap-cop30 — lacuna do FABDEM: Armênia e Azerbaijão (o GLO-30 PÚBLICO,
+# base do FABDEM e do COPERNICUS/DEM/GLO30 do EE, exclui os dois países).
+# No bucket: COP30 (DSM, não bare-earth) com o MESMO nome e grid dos
+# FABDEM (1", float32, nodata −9999). Tudo DEPOIS desta linha é lacuna —
+# o tools/export_fabdem_tier.py lê esta seção pra preencher o tier.
+N38E045
+N38E046
+N38E048
+N38E049
+N39E044
+N39E045
+N39E046
+N39E047
+N39E048
+N39E049
+N40E043
+N40E044
+N40E045
+N40E046
+N40E047
+N40E048
+N40E049
+N40E050
+N41E043
+N41E044
+N41E045
+N41E046
+N41E047
+N41E048
+N41E049
