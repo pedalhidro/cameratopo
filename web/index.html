@@ -933,12 +933,13 @@ const EE_LAYERS = [
   { id: "mtpi-parana",    label: "MTPI Bacia do Paraná 30m",
     xyz: "https://telhas.pedalhidrografi.co/mtpi_bacia_parana_30/{z}/{x}/{y}.png",
     zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100, hd: true },
-  // MTPI global (WebP no R2 com CORS liberado, nativo até z9).
+  // MTPI global (WebP no R2 via domínio próprio mtpi.pedalhidrografi.co — o
+  // pub-…r2.dev é rate-limited/sem cache da CDN; CORS liberado, nativo até z9).
   { id: "mtpi-global-v1", label: "MTPI global v1",
-    xyz: "https://pub-0a3053a2659e451495b312b1dcb9307c.r2.dev/v1/xyz/{z}/{x}/{y}.webp",
+    xyz: "https://mtpi.pedalhidrografi.co/v1/xyz/{z}/{x}/{y}.webp",
     zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100, hd: true },
   { id: "mtpi-global-v2", label: "MTPI global v2",
-    xyz: "https://pub-0a3053a2659e451495b312b1dcb9307c.r2.dev/v2/xyz/{z}/{x}/{y}.webp",
+    xyz: "https://mtpi.pedalhidrografi.co/v2/xyz/{z}/{x}/{y}.webp",
     zmax: 9, attr: "MTPI global · Pedal Hidrográfico", op: 100, hd: true },
   { id: "relevo",         label: "Relevo (elevação × declive)",      relief: true },
   { id: "rios",           label: "Rios livres (HydroSHEDS)",         dep: "" },
