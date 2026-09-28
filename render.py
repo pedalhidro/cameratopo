@@ -60,7 +60,7 @@ TMS = morecantile.tms.get("WebMercatorQuad")
 # cada mudança que altere os pixels — E o TILE_VERSION do web/index.html junto
 # (ele vai na URL do tile como cache-buster; o ETag sozinho não fura o max-age
 # de 7 dias do navegador/CDN).
-RENDER_VERSION = "12"
+RENDER_VERSION = "13"
 
 # Reamostragem na leitura do DEM. `bilinear` interpola (relevo/declividade suaves)
 # em vez do `nearest` default do rio-tiler (que terraça a elevação e serrilha a
@@ -143,7 +143,7 @@ TIERS = [   # do mais grosso pro mais fino; `ready` = arquivos já no bucket
      # Lacuna Armênia/Azerbaijão (o FABDEM do EE não tem): tools/patch_tier_gap.py.
      # `ready` só depois do arquivo no bucket (senão DEMReadError na região).
      "patches": [{"file": "fabdem_500m_gap_cop30.tif", "bounds": (43.0, 38.0, 51.0, 42.0),
-                  "ready": False}]},
+                  "ready": True}]},
     {"name": "fabdem_90m_sa", "ppd": 1200, "file_deg": 10, "origin": (-90.0, 20.0),
      "extent": (-90.0, -60.0, -30.0, 20.0), "ready": True},
 ]
@@ -683,7 +683,7 @@ def field_tile(dem, x, y, z, tilesize=256, max_read=None):
 # Versão do ENCODING/leitura do terreno — chave de cache/ETag E o `v=` que a UI
 # manda (TERRAIN_VERSION do index.html). Bumpe os DOIS juntos, como o par
 # RENDER/TILE_VERSION (os tiles têm max-age de 7 dias).
-TERRAIN_VERSION = "4"
+TERRAIN_VERSION = "5"
 # Zoom máximo NATIVO do terreno por fonte (acima o MapLibre sobreamplia): ~1 px
 # de tile por célula nativa. FABDEM 30 m → z12 (~35 m/px em SP); DEM-SP 5 m → z15.
 TERRAIN_MAXZOOM = {"fabdem": 12, "sp": 15}

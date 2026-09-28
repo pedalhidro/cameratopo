@@ -854,7 +854,7 @@ const DEFAULTS = {
 // então SEM URL nova o navegador/CDN seguem servindo PNGs antigos depois de uma
 // mudança na matemática do render (nem reiniciar o servidor resolve — dentro do
 // max-age o navegador nem revalida o ETag). Bumpe junto com o RENDER_VERSION.
-const TILE_VERSION = "12";
+const TILE_VERSION = "13";
 
 // Superamostragem: px lidos por lado no zoom afastado (query `ss` do tile). Mais
 // = declividade computada mais perto da resolução nativa do DEM (mais textura,
@@ -2370,7 +2370,7 @@ $("btn-eye").addEventListener("click", () => {
 // opacidade (desenhos ficam só no 2D). Zoom: o MapLibre mede o mundo em 512 px
 // e o Leaflet em 256 → z3d = z2d − 1. Bearing: o leaflet-rotate gira o
 // conteúdo no sentido horário → bearing3d = −bearing2d.
-const TERRAIN_VERSION = "4";                       // = render.TERRAIN_VERSION — bump JUNTO
+const TERRAIN_VERSION = "5";                       // = render.TERRAIN_VERSION — bump JUNTO
 const TERRAIN_MAXZOOM = { fabdem: 12, sp: 15 };    // = render.TERRAIN_MAXZOOM
 let map3d = null, map3dLoaded = false, sync3dGuard = false, busy3d = false;
 const tiles3d = new Map();   // id da fonte → URL atual (setTiles só se mudou)
