@@ -53,7 +53,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   XYZ diretos, sem EE: os MTPI
   Pindorama 90m/Bacia do Paraná 30m (telhas.pedalhidrografi.co, os mesmos do
   amora — nativos até z10/z12 via `zmax`) e o MTPI global v1/v2 (WebP no R2
-  `mtpi.pedalhidrografi.co` — domínio próprio do bucket; nativo até z10, CORS liberado). MTPI com `hd: true` =
+  `mtpi.pedalhidrografi.co` — domínio próprio do bucket; nativo até z10, CORS liberado; os tiles saem com `Cache-Control: immutable` de 1 ano, então a URL leva `?r=N` — BUMPE o N a cada re-render do MTPI, senão o navegador segue com os tiles antigos). MTPI com `hd: true` =
   densidade de tela: 2D `detectRetina` com `maxNativeZoom = zmax − 1` (o
   Leaflet soma 1 ao zoom da URL e NÃO ao maxNativeZoom — sem o −1, 404 no
   topo); globo/3D `tileSize: 128`. Sem isso, 3×3 px de tela por px de tile no
