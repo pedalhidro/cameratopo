@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const VERSION = "47";
+const VERSION = "48";
 const CACHE = `cameratopo-v${VERSION}`;
 
 const SHELL = [
@@ -51,7 +51,7 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;               // externos: só rede
-  if (/^\/(\d+\/\d+\/\d+\.png|ee\/|terrain\/|field\/|stats|fx|costs|health)/.test(url.pathname)) return;  // tiles/campos/terreno/stats: só rede
+  if (/^\/(\d+\/\d+\/\d+\.png|ee\/|terrain\/|field\/|stats|fx|health)/.test(url.pathname)) return;  // tiles/campos/terreno/stats: só rede
 
   // Shell: stale-while-revalidate (navegações caem no "./")
   const key = req.mode === "navigate" ? "./" : req;

@@ -3298,9 +3298,11 @@ const COST = {
   readUsd: { r2: 0.36e-6,             // R2 classe B (FABDEM 30 m)
              gcs: 0.40e-6 },          // Cloud Storage classe B (tiers 500 m/90 m, DEM-SP) — medido na fatura
   egressPerGib: 0.12,                 // US$/GiB internet América do Sul → América do Sul
-  safety: 3,
+  safety: 3,                          // segurança: o que o navegador não vê (startup, abortados…)
+  market: 10,                         // valor de MERCADO: um app comercial cobra ~10× o custo (margem ~90%)
 };
-const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|stats|fx|costs|health)/;
+const COST_MULT = COST.safety * COST.market;   // ×30 nas estimativas
+const COST_RE = /^\/(\d+\/\d+\/\d+\.png|field\/|terrain\/|ee\/|stats|fx|health)/;
 const costAcc = { usd: 0, n: 0, rendered: 0, fromCache: 0, serverS: 0, bytes: 0, reads: {} };
 let fxRate = null, fxDate = null, fxSource = "", clockSkew = null, costRaf = 0;
 function accountEntry(e) {
@@ -3371,13 +3373,36 @@ function browserTotals() {
   }
   return { all, d7, first };
 }
-// Serviço inteiro (todos os usuários): FATURA real via /costs (BigQuery), não
-// estimativa. Busca uma vez por abertura do cartão (o servidor cacheia 6 h).
+// Serviço inteiro (todos os usuários): custo REAL pago, não estimativa — do
+// painel gastos-nuvem (danlessa/gastos-nuvem, JSON público com CORS `*`,
+// atualizado 1×/dia): export de faturamento do GCP + R2 pela API da
+// Cloudflare, líquido das franquias grátis, por caso de uso. Lido direto pelo
+// navegador: sem permissão de BigQuery nenhuma no servidor (o /costs antigo
+// dependia dela e nunca funcionou). Linhas: [dia, provedor, caso, serviço,
+// recurso, USD líquido]. O tier/DEM-SP no bucket telhas é contado no "amora".
+const GASTOS_URL = "https://abiru.to/gastos-nuvem/data/costs.json";
+const GASTOS_USES = [
+  ["cameratopo", "servidor (Cloud Run)"],
+  ["fabdem", "FABDEM 30 m no R2 (dividido com simujaules e amora)"],
+];
 let billing = null, billingAt = 0;
 function loadBilling() {
   if (Date.now() - billingAt < 10 * 60 * 1000) return;
   billingAt = Date.now();
-  fetch("/costs").then((r) => r.json()).then((j) => { billing = j; renderCost(); }).catch(() => {});
+  fetch(GASTOS_URL).then((r) => r.json()).then((j) => {
+    const last = j.last, cut = new Date(Date.parse(last + "T00:00:00Z") - 6 * 86400000).toISOString().slice(0, 10);
+    const uses = GASTOS_USES.map(([id, label]) => {
+      let d7 = 0, all = 0, first = null;
+      for (const r of j.rows) {
+        if (r[2] !== id) continue;
+        all += r[5]; if (r[0] >= cut) d7 += r[5];
+        if (!first || r[0] < first) first = r[0];
+      }
+      return { id, label, d7, all, first };
+    });
+    billing = { ok: true, last, uses };
+    renderCost();
+  }).catch(() => { billing = { ok: false }; renderCost(); });
 }
 const brl = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL",
   minimumFractionDigits: v < 1 ? 4 : 2, maximumFractionDigits: v < 1 ? 4 : 2 });
@@ -3386,8 +3411,8 @@ function renderCost() {
   const pill = document.getElementById("cost-pill");
   if (!pill) return;
   const rate = fxRate || 5.18;
-  const est = (usd) => brl(usd * COST.safety * rate);   // estimativa: ×fator, em R$
-  const total = costAcc.usd * COST.safety * rate;
+  const est = (usd) => brl(usd * COST_MULT * rate);     // estimativa: ×segurança ×mercado, em R$
+  const total = costAcc.usd * COST_MULT * rate;
   pill.innerHTML = `<span class="cl">custo desta sessão </span>≈ ${brl(total)}`;
   const pop = document.getElementById("cost-pop");
   if (pop.hidden) return;
@@ -3396,19 +3421,19 @@ function renderCost() {
   const bt = browserTotals();
   let coll = `<div class="fine">indisponível no momento</div>`;
   if (billing && billing.ok) {
-    const cv = (v) => brl(billing.currency === "BRL" ? v : v * rate);
+    const cv = (v) => brl(v * rate);
     coll =
       "<ul>" +
-      `<li>últimos 7 dias: <b>${cv(billing.gross_7d)}</b> a preço de tabela · ${cv(billing.net_7d)} pago</li>` +
-      `<li>desde ${dmy(billing.first_day)}: <b>${cv(billing.gross_all)}</b> a preço de tabela · ${cv(billing.net_all)} pago</li>` +
+      billing.uses.map((u) => `<li>${u.label}: <b>${cv(u.d7)}</b> nos últimos 7 dias · ${cv(u.all)} desde ${dmy(u.first)}</li>`).join("") +
       "</ul>" +
-      `<div class="fine">Fatura real do Google Cloud (Cloud Run <i>cameratopo</i>, com a saída de dados), ` +
-      `dados até ${dmy(billing.last_day)} — o faturamento atrasa ~1 dia. "Pago" = depois da franquia grátis.</div>`;
+      `<div class="fine">Custo REAL pago (líquido das franquias grátis, sem fatores), do painel ` +
+      `<a href="https://abiru.to/gastos-nuvem/" target="_blank" rel="noopener">gastos-nuvem</a> — ` +
+      `dados até ${dmy(billing.last)}; o último dia é parcial.</div>`;
   } else if (!billing) {
     coll = `<div class="fine">carregando…</div>`;
   }
   pop.innerHTML =
-    `<div class="fine">Custo pro coletivo · estimativas com fator de segurança ×${COST.safety}</div>` +
+    `<div class="fine">Custo pro coletivo · estimativas ×${COST_MULT} (segurança ×${COST.safety} · valor de mercado ×${COST.market}: margem de ~90% de apps)</div>` +
     `<div class="big">${brl(total)}</div>` +
     `<div class="fine">esta sessão (esta aba)</div>` +
     "<ul>" +

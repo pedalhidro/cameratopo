@@ -293,11 +293,14 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   Server-Timing quando RENDERIZA (hit de cache não manda) — `_storage_src`,
   mesma regra de tier do render — e o navegador precifica ~4 leituras pelo
   preço de cada armazenamento. Acumulado por
-  navegador em localStorage (`cameratopo-cost-v1`, USD cru por dia). Serviço
-  inteiro = FATURA real via `/costs` (BigQuery `billing_export`, recurso Cloud
-  Run `cameratopo`, cache 6 h) — a SA precisa de `roles/bigquery.jobUser` no
-  projeto + leitura (READER) no dataset `billing_export`; sem isso a UI mostra
-  "indisponível".
+  navegador em localStorage (`cameratopo-cost-v1`, USD cru por dia).
+  Estimativas ×30 = segurança ×3 × valor de MERCADO ×10 (margem ~90% de app
+  comercial; `COST.safety`/`COST.market`). Serviço inteiro = custo REAL pago
+  (líquido das franquias, SEM fatores) lido pelo navegador do JSON público do
+  painel **gastos-nuvem** (`abiru.to/gastos-nuvem/data/costs.json`, CORS `*`,
+  1×/dia; casos `cameratopo` = Cloud Run e `fabdem` = R2, este dividido com
+  simujaules/amora). O antigo `/costs` (BigQuery) foi removido: exigia IAM de
+  BigQuery na SA que nunca foi concedido (403) e não via o R2.
 - **Capacidade: `--max-instances 10`.** Com 4 × concurrency 40 = 160 pedidos
   em voo, uma única vista retina em z7 (~144 tiles lentos de mosaico) batia o
   teto e o Cloud Run respondia **429** (10–21% dos tiles nos logs). Sem
