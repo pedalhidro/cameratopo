@@ -339,6 +339,34 @@
   #cost-pop { max-height: calc(100vh - 120px); max-height: calc(100dvh - 120px - var(--sat) - var(--sab)); overflow-y: auto; }
   body.immersive .ct-cost, body.immersive #cost-pop { display: none; }
 
+  /* Coordenadas sob o ponteiro: à direita do custo (só com mouse — no toque
+     não há "ponteiro"; lá vale o toque longo → menu de copiar) */
+  .ct-coords {
+    order: 11; margin-left: 8px; padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; line-height: 1.45;
+    font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 19ch; text-align: center;
+    color: var(--panel-fg); background: var(--panel-bg);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-line); pointer-events: none;
+  }
+  .ct-coords[hidden] { display: none; }
+  body.immersive .ct-coords { display: none; }
+  @media (hover: none), (max-width: 640px) { .ct-coords { display: none; } }
+  /* Menu do botão direito / toque longo no mapa */
+  #coord-menu {
+    position: fixed; z-index: 1150; min-width: 190px; padding: 5px;
+    border-radius: 10px; font-size: 12px; color: var(--panel-fg);
+    background: var(--panel-solid); border: 1px solid var(--panel-line); box-shadow: var(--panel-shadow);
+  }
+  #coord-menu[hidden] { display: none; }
+  #coord-menu .cm-ll { padding: 3px 8px 5px; font-size: 11px; color: var(--panel-muted); font-variant-numeric: tabular-nums; }
+  #coord-menu button {
+    display: block; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; text-align: left;
+    background: transparent; color: inherit; font: inherit; cursor: pointer;
+  }
+  #coord-menu button:hover, #coord-menu button:focus-visible { background: var(--seg-bg); outline: none; }
+  @media (pointer: coarse) { #coord-menu button { padding: 12px 10px; font-size: 14px; } }
+
   /* Modo imersivo (👁): só o mapa + o olho, que vira o INVERSO do que está
      embaixo (mix-blend-mode difference com traço branco, sem fundo). */
   body.immersive #panel-toggle, body.immersive #layers-toggle,
@@ -618,6 +646,10 @@
 </div>
 <button type="button" id="update-banner" hidden>Nova versão — toque para recarregar</button>
 <div id="cost-pop" hidden role="dialog" aria-label="Custo estimado desta sessão"></div>
+<div id="coord-menu" hidden role="menu" aria-label="Coordenadas deste ponto">
+  <div class="cm-ll"></div>
+  <button type="button" role="menuitem">⧉ Copiar coordenadas</button>
+</div>
 <div id="load-progress" role="progressbar" aria-label="Carregando tiles" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
   <div class="bar"></div><span class="lbl"></span>
 </div>
@@ -819,6 +851,12 @@
         o tamanho, em metros, do círculo de vizinhança usado na média/desvio.
         A <b>opacidade do relevo</b> agora é a linha <i>Relevo</i> do painel de
         camadas ⧉, como as demais camadas.</p>
+
+      <h3>Coordenadas</h3>
+      <p>Com mouse, a pílula ao lado do custo mostra a latitude, longitude do
+        ponto sob o ponteiro. <b>Botão direito</b> (sem arrastar) ou <b>toque
+        longo</b> no mapa abre o menu <i>Copiar coordenadas</i> — “lat, lon” em
+        graus decimais, pronto pra colar no Google Maps, OSM ou GPS.</p>
 
       <h3>Copiar URL telhas (Topocor · PTL) · Copiar link desta vista</h3>
       <p>As URLs de telhas (<code>/{z}/{x}/{y}.png?…</code> do relevo Topocor;
@@ -2851,6 +2889,7 @@ async function setMode(m) {
   map3d.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
   // botão direito arrasta = gira/inclina; sem o menu de contexto por cima
   map3d.getCanvasContainer().addEventListener("contextmenu", (e) => e.preventDefault());
+  attachCoords3d(map3d);
   map3d.on("load", () => { map3dLoaded = true; mountTerrain(); sync3dLayers(); applyExaggeration(); applyFov(); applyProjection(); settleCamera(); });
   map3d.on("dataloading", () => { if (!busy3d) { busy3d = true; updateProgress(); } });
   // Tile XYZ de outra origem SEM CORS: o <img> do 2D carrega, mas o WebGL recusa
@@ -3478,6 +3517,99 @@ if ("PerformanceObserver" in window) {
 fetch("/fx").then((r) => r.json()).then((j) => {
   fxRate = j.usdbrl; fxDate = j.date; fxSource = j.source; renderCost();
 }).catch(() => {});
+
+// ── Coordenadas: sob o ponteiro (pílula) + menu "Copiar coordenadas" ────────
+// Menu no botão direito SEM arrastar (no 3D o arrasto direito gira/inclina, e
+// no Linux/mac o contextmenu sai no mousedown, antes de saber se vai arrastar
+// — por isso decide no pointerup) ou no toque longo (o iOS não dispara
+// contextmenu). "lat, lon" com ponto decimal e 5 casas (~1 m): cola direto no
+// Google Maps/OSM/GPS.
+const fmtLL = (lat, lng) => `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+const wrapLng = (x) => ((((x + 180) % 360) + 360) % 360) - 180;   // pan além do antimeridiano
+let coordsEl = null;
+function showCoords(lat, lng) {
+  if (!coordsEl) return;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) { coordsEl.hidden = true; return; }
+  coordsEl.textContent = fmtLL(lat, wrapLng(lng)); coordsEl.hidden = false;
+}
+const hideCoords = () => { if (coordsEl) coordsEl.hidden = true; };
+map.addControl(new (L.Control.extend({
+  options: { position: "bottomleft" },
+  onAdd() {
+    coordsEl = L.DomUtil.create("div", "ct-coords");
+    coordsEl.hidden = true;
+    return coordsEl;
+  },
+}))());
+const coordMenu = $("coord-menu");
+let coordMenuText = "", swallowClick = false;
+function openCoordMenu(x, y) {
+  let ll;
+  if (P.d3 && map3d) {
+    const r = map3d.getCanvasContainer().getBoundingClientRect();
+    ll = map3d.unproject([x - r.left, y - r.top]);
+  } else {
+    ll = map.mouseEventToLatLng({ clientX: x, clientY: y });   // leaflet-rotate já desconta o giro
+  }
+  if (!ll || !Number.isFinite(ll.lat) || !Number.isFinite(ll.lng)) return;
+  coordMenuText = fmtLL(ll.lat, wrapLng(ll.lng));
+  coordMenu.querySelector(".cm-ll").textContent = coordMenuText;
+  coordMenu.hidden = false;
+  const r = coordMenu.getBoundingClientRect();
+  coordMenu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
+  coordMenu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
+}
+const closeCoordMenu = () => { coordMenu.hidden = true; };
+coordMenu.querySelector("button").addEventListener("click", () => {
+  copy(coordMenuText, `Coordenadas copiadas: ${coordMenuText}`);
+  closeCoordMenu();
+});
+document.addEventListener("pointerdown", (e) => { if (!coordMenu.hidden && !coordMenu.contains(e.target)) closeCoordMenu(); }, true);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeCoordMenu(); });
+function bindCoordMenu(el, isMapTarget) {
+  let rd = null, lp = null;   // botão direito apertado em · toque longo pendente
+  const lpCancel = () => { if (lp) { clearTimeout(lp.t); lp = null; } };
+  const lpFire = () => { const { x, y } = lp; lpCancel(); swallowClick = true; openCoordMenu(x, y); };
+  el.addEventListener("pointerdown", (e) => {
+    swallowClick = false;
+    if (!isMapTarget(e.target) || document.pointerLockElement) { lpCancel(); return; }
+    if (e.pointerType === "mouse") { rd = e.button === 2 ? [e.clientX, e.clientY] : null; return; }
+    if (e.pointerType !== "touch") return;
+    if (lp) { lpCancel(); return; }   // 2º dedo = pinça/giro, não toque longo
+    lp = { x: e.clientX, y: e.clientY, t: setTimeout(lpFire, 550) };
+  }, true);
+  el.addEventListener("pointermove", (e) => {
+    if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10) lpCancel();
+  }, true);
+  el.addEventListener("pointerup", (e) => {
+    if (e.pointerType === "mouse" && e.button === 2 && rd) {
+      if (Math.hypot(e.clientX - rd[0], e.clientY - rd[1]) <= 4) openCoordMenu(e.clientX, e.clientY);
+      rd = null;
+      return;
+    }
+    lpCancel();
+  }, true);
+  el.addEventListener("pointercancel", lpCancel, true);
+  el.addEventListener("contextmenu", (e) => {
+    if (!isMapTarget(e.target)) return;
+    e.preventDefault();               // o menu é o nosso (e nada de "salvar imagem" no tile)
+    if (lp) lpFire();                 // Android: o contextmenu do toque longo chega antes do timer
+  });
+  // o toque longo não vira clique (vértice de desenho, etc.)
+  el.addEventListener("click", (e) => {
+    if (swallowClick) { swallowClick = false; e.preventDefault(); e.stopPropagation(); }
+  }, true);
+}
+bindCoordMenu(map.getContainer(), (t) => !(t.closest && t.closest(".leaflet-control, .leaflet-popup, button, input, a")));
+map.on("mousemove", (e) => showCoords(e.latlng.lat, e.latlng.lng));
+map.getContainer().addEventListener("mouseleave", hideCoords);
+map.on("movestart", closeCoordMenu);
+function attachCoords3d(m) {   // chamado na criação do MapLibre (globo/3D)
+  m.on("mousemove", (e) => showCoords(e.lngLat.lat, e.lngLat.lng));
+  m.on("movestart", closeCoordMenu);
+  m.getCanvasContainer().addEventListener("mouseleave", hideCoords);
+  bindCoordMenu(m.getCanvasContainer(), (t) => t.tagName === "CANVAS");
+}
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 // começa fechado no celular (em pé OU deitado — deitado a coluna lateral cobre ~40% do mapa)
