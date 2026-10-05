@@ -973,6 +973,9 @@ const EE_LAYERS = [
     zmax: 12, attr: "MTPI Bacia do Paraná 30 m · Pedal Hidrográfico", op: 100, hd: true },
   // MTPI global (WebP no R2 via domínio próprio mtpi.pedalhidrografi.co — o
   // pub-…r2.dev é rate-limited/sem cache da CDN; CORS liberado; nativo até o `zmax` de cada camada).
+  { id: "mtpi-global-v0", label: "MTPI global v0",
+    xyz: "https://mtpi.pedalhidrografi.co/v0/xyz/{z}/{x}/{y}.webp?r=1",
+    zmax: 11, attr: "MTPI global · Pedal Hidrográfico", op: 100, hd: true },
   { id: "mtpi-global-v1", label: "MTPI global v1",
     xyz: "https://mtpi.pedalhidrografi.co/v1/xyz/{z}/{x}/{y}.webp?r=2",
     zmax: 11, attr: "MTPI global · Pedal Hidrográfico", op: 100, hd: true },

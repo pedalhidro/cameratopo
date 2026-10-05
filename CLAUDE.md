@@ -52,7 +52,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   camadas de tile. Camadas do painel ⧉ com campo `xyz` no catálogo são tiles
   XYZ diretos, sem EE: os MTPI
   Pindorama 90m/Bacia do Paraná 30m (telhas.pedalhidrografi.co, os mesmos do
-  amora — nativos até z10/z12 via `zmax`) e o MTPI global v1/v2 (WebP no R2
+  amora — nativos até z10/z12 via `zmax`) e o MTPI global v0/v1/v2 (WebP no R2
   `mtpi.pedalhidrografi.co` — domínio próprio do bucket; nativo até z11, CORS liberado; os tiles saem com `Cache-Control: immutable` de 1 ano, então a URL leva `?r=N` — BUMPE o N a cada re-render do MTPI, senão o navegador segue com os tiles antigos). MTPI com `hd: true` =
   densidade de tela: 2D `detectRetina` com `maxNativeZoom = zmax − 1` (o
   Leaflet soma 1 ao zoom da URL e NÃO ao maxNativeZoom — sem o −1, 404 no
