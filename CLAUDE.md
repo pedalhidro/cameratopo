@@ -181,7 +181,7 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   Sem auth de USUÁRIO por design (igual ao resto do ecossistema) — mas a
   ORIGEM pode ser travada: **`CAMERATOPO_ORIGIN_SECRET`** (env do Cloud Run,
   vírgula separa vários p/ rotação; NUNCA no repo nem no deploy.yml) faz todo
-  pedido sem `X-Cameratopo-Origin` igual a um deles dar 403 no-store — quem
+  pedido (fora `/health`, pro probe) sem `X-Cameratopo-Origin` igual a um deles dar 403 no-store — quem
   conhece o `*.run.app` não pula mais a Cloudflare (cache de borda, rate
   limit). Sem a env = aberto como antes. Ordem de ligar: (1) o Worker passa a
   mandar o header; (2) conferir que NADA (amora, QGIS, configs velhas) aponta

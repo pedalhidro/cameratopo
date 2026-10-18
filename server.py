@@ -136,7 +136,9 @@ ORIGIN_HEADER = "X-Cameratopo-Origin"
 
 @app.before_request
 def _origin_lock():
-    if not _ORIGIN_SECRETS:
+    # /health fica de fora: probe HTTP do Cloud Run não leva o header (revisão
+    # nunca ficaria Ready), e não custa nada servir.
+    if not _ORIGIN_SECRETS or request.path == "/health":
         return None
     got = (request.headers.get(ORIGIN_HEADER) or "").encode()
     # compare_digest com todos (sem curto-circuito): tempo não denuncia qual.
