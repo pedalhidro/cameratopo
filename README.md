@@ -113,7 +113,10 @@ Tiles são determinísticos por `(z, x, y, querystring)`: resposta com
 304) e `Access-Control-Allow-Origin: *`. Ponha Cloudflare/CDN na frente com a
 querystring na chave de cache.
 
-Sem auth — igual ao resto do projeto (restrinja na borda se precisar).
+Sem auth — igual ao resto do projeto (restrinja na borda se precisar). Com
+`CAMERATOPO_ORIGIN_SECRET` definido, a origem só aceita pedidos com o header
+`X-Cameratopo-Origin` correspondente (o proxy da Cloudflare o acrescenta) —
+consumidores externos usam o domínio público e não notam nada.
 
 ## Rodando local
 

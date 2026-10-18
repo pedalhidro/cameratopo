@@ -22,12 +22,14 @@ Endpoint:
                            perto do nativo (mais textura), mais CPU/rede.
     GET /health            ok
 
-Sem auth (igual ao resto do projeto — restrinja na borda se precisar). Tiles são
+Sem auth (igual ao resto do projeto — restrinja na borda se precisar; a origem
+pode exigir o header do proxy via CAMERATOPO_ORIGIN_SECRET). Tiles são
 determinísticos por (z,x,y,querystring) → Cache-Control longo + ETag; ponha um
 CDN/Cloudflare na frente com a query na chave de cache.
 """
 
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -120,6 +122,34 @@ def _busy_close():
         return _busy["v"] - g.v0
 
 
+# ── Trava de origem ─────────────────────────────────────────────────────────
+# O `*.run.app` é público: quem o conhece pula a Cloudflare (cache de borda,
+# regras de rate limit) e cada pedido vira render pago. Com
+# CAMERATOPO_ORIGIN_SECRET definido (vírgula separa vários → rotação sem
+# janela), só passa pedido com `X-Cameratopo-Origin` igual a um deles — header
+# que o Worker da Cloudflare acrescenta. Sem a env, nada muda (dev local, e o
+# deploy de hoje). NÃO é auth de usuário: o domínio público segue aberto.
+_ORIGIN_SECRETS = [s.strip().encode() for s in
+                   (os.environ.get("CAMERATOPO_ORIGIN_SECRET") or "").split(",") if s.strip()]
+ORIGIN_HEADER = "X-Cameratopo-Origin"
+
+
+@app.before_request
+def _origin_lock():
+    if not _ORIGIN_SECRETS:
+        return None
+    got = (request.headers.get(ORIGIN_HEADER) or "").encode()
+    # compare_digest com todos (sem curto-circuito): tempo não denuncia qual.
+    ok = False
+    for s in _ORIGIN_SECRETS:
+        ok |= hmac.compare_digest(got, s)
+    if ok:
+        return None
+    return Response("acesso direto à origem bloqueado — use https://cameratopo.pedalhidrografi.co\n",
+                    status=403, headers={"Cache-Control": "no-store",
+                                         "Content-Type": "text/plain; charset=utf-8"})
+
+
 @app.after_request
 def _server_timing(resp):
     share = _busy_close()
@@ -199,6 +229,21 @@ def _dem_arg():
     return v if v in ("sp", "ee") else "fabdem"
 
 
+def _ss_arg():
+    """`ss`: teto da superamostragem (px lidos por lado no zoom afastado). Mais
+    = declividade mais perto do nativo, mais caro. Clampado em SS_HARD_MAX e
+    TRUNCADO pra potência de 2 — o render só usa `_pow2_floor(ss)`, então
+    ss=600 e ss=512 eram o MESMO tile com chaves diferentes (render repetido à
+    toa). 256/512/1024 (as opções da UI) não mudam: chave igual à de antes."""
+    ss = _fnum("ss")
+    try:
+        max_read = int(ss) if ss else render.MAX_READ_SIZE
+    except OverflowError:   # _fnum já barra inf; isto é só cinto
+        max_read = render.SS_HARD_MAX
+    max_read = max(render.MIN_READ_SIZE, min(render.SS_HARD_MAX, max_read))
+    return render._pow2_floor(max_read)
+
+
 def _stats_dem(dem):
     """A fonte `ee` é o MESMO FABDEM dos COGs — percentis vêm do caminho local
     (sem reduceRegion no EE: zero latência extra, zero quota)."""
@@ -221,12 +266,19 @@ def _resolve_params(dem):
         if slope_max is None:
             slope_max = st["slopeMax"]
 
+    # QUANTIZA na precisão da chave/ETag e renderiza COM o valor quantizado:
+    # antes a chave já arredondava, mas o render usava o float cru — dois URLs
+    # com a mesma chave podiam sair diferentes (o 1º a chegar ganhava o cache),
+    # e `elevMin=812.0001`, `…0002`… só cunhavam renders novos até a 3ª casa.
+    # Valores já canônicos (os da UI) dão a MESMA chave de antes — caches valem.
+    elev_min = round(elev_min, 3)
+    elev_max = round(elev_max, 3)
     if elev_max <= elev_min:              # faixa inválida → degenera com graça
         elev_max = elev_min + 1.0
 
     gamma = _fnum("slopeGamma") or 1.2
-    gamma = min(16.0, max(0.0625, gamma))   # UI usa escala log2: 1/16 … 16
-    slope_max = max(1e-9, slope_max)
+    gamma = min(16.0, max(0.0625, round(gamma, 3)))   # UI usa escala log2: 1/16 … 16
+    slope_max = max(1e-6, round(slope_max, 6))
 
     cyc = request.args.get("cycles")
     try:
@@ -236,19 +288,16 @@ def _resolve_params(dem):
         cycles = 1
     cycles = min(16, max(1, cycles))
 
-    # `ss`: teto da superamostragem (px lidos por lado no zoom afastado). Mais =
-    # declividade mais perto do nativo, mais caro. Clampado em render.SS_HARD_MAX.
-    ss = _fnum("ss")
-    max_read = int(ss) if ss else render.MAX_READ_SIZE
-    max_read = max(render.MIN_READ_SIZE, min(render.SS_HARD_MAX, max_read))
+    max_read = _ss_arg()
 
     # PTL (camada /ee/ptl/): ±N desvios que saturam a paleta e diâmetro (m) do
     # círculo de vizinhança. Clampes largos vs. o app GEE (0.1–3 / 60–1000) mas
     # com teto — kernel gigante = custo de computação no EE (endpoint público).
+    # Quantizados como a chave (layer_param_sig: .2f / .0f).
     ptl_sd = _fnum("ptlSd") or ee_source.PTL_MAX_SD
-    ptl_sd = min(10.0, max(0.1, ptl_sd))
+    ptl_sd = min(10.0, max(0.1, round(ptl_sd, 2)))
     ptl_kernel = _fnum("ptlKernel") or ee_source.PTL_KERNEL_M
-    ptl_kernel = min(3000.0, max(30.0, ptl_kernel))
+    ptl_kernel = min(3000.0, max(30.0, float(round(ptl_kernel))))
 
     return dict(elev_min=elev_min, elev_max=elev_max, slope_max=slope_max,
                 gamma=gamma, cycles=cycles, max_read=max_read,
@@ -384,6 +433,13 @@ def stats():
         st = None
     if st is None:
         return _json_cors({"ok": False, "error": "sem cobertura de DEM aqui"}, 200)
+    # Na precisão da chave dos tiles: a UI congela esses números na querystring,
+    # e float cru (17 dígitos) fazia cada vista cunhar URLs únicas na CDN.
+    for k, nd in (("elevMin", 3), ("elevMax", 3), ("slopeMax", 6)):
+        if isinstance(st.get(k), float):
+            st[k] = round(st[k], nd)
+    if isinstance(st.get("slopeMax"), float):
+        st["slopeMax"] = max(1e-6, st["slopeMax"])   # o piso de _resolve_params
     return _json_cors({"ok": True, "dem": dem, **st}, 200)
 
 
@@ -492,9 +548,7 @@ def field_tile(z, x, y):
     params não refaz nada no servidor, e o mesmo tile serve todo mundo (cache
     longo + CDN). `ee` não tem campos (o EE entrega RGB pronto) → fabdem."""
     dem = "sp" if _dem_arg() == "sp" else "fabdem"
-    ss = _fnum("ss")
-    max_read = int(ss) if ss else render.MAX_READ_SIZE
-    max_read = max(render.MIN_READ_SIZE, min(render.SS_HARD_MAX, max_read))
+    max_read = _ss_arg()
     key = (f"fld{render.FIELD_VERSION}.rv{render.RENDER_VERSION}/{dem}/{z}/{x}/{y}"
            f"?ss={max_read}")
     etag = '"' + hashlib.md5(key.encode()).hexdigest() + '"'

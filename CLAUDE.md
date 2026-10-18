@@ -178,7 +178,20 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   --allow-unauthenticated --cpu 2 --memory 1Gi --min-instances 0 --max-instances 10 --concurrency 40
   --service-account cameratopo-ee@pedal-hidrografico.iam.gserviceaccount.com`
   — a SA é o que dá ADC com acesso ao EE pra fonte `dem=ee`).
-  Sem auth por design (igual ao resto do ecossistema).
+  Sem auth de USUÁRIO por design (igual ao resto do ecossistema) — mas a
+  ORIGEM pode ser travada: **`CAMERATOPO_ORIGIN_SECRET`** (env do Cloud Run,
+  vírgula separa vários p/ rotação; NUNCA no repo nem no deploy.yml) faz todo
+  pedido sem `X-Cameratopo-Origin` igual a um deles dar 403 no-store — quem
+  conhece o `*.run.app` não pula mais a Cloudflare (cache de borda, rate
+  limit). Sem a env = aberto como antes. Ordem de ligar: (1) o Worker passa a
+  mandar o header; (2) conferir que NADA (amora, QGIS, configs velhas) aponta
+  pro `*.run.app` — só pro domínio; (3) `gcloud run services update cameratopo
+  --region southamerica-east1 --update-env-vars CAMERATOPO_ORIGIN_SECRET=…`
+  (o `deploy --source` do CI preserva env existente — não use
+  `--set-env-vars` lá, apagaria). Rotação: env com `velho,novo` → Worker
+  manda o novo → env só com o novo. Limite de taxa é regra de WAF da
+  Cloudflare (por IP, nos paths de render), não código aqui; o teto real de
+  custo segue sendo o `--max-instances`.
   **CI/CD**: `.github/workflows/deploy.yml` roda esse MESMO comando a cada push
   na `main` (WIF sem chave, SA `gh-deploy`; inerte até o setup do cabeçalho
   do arquivo). Mudou um flag do deploy → mude nos DOIS lugares.
@@ -272,6 +285,16 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   `ss` clampa em `SS_HARD_MAX`. Parse de query defensivo (`math.isfinite` —
   `cycles=1e999` já derrubou com OverflowError, que `except ValueError` NÃO
   pega).
+- **Params quantizados na precisão da chave/ETag, e o render USA o valor
+  quantizado** (`_resolve_params`: elev .3f, slopeMax .6f com piso 1e-6, γ
+  .3f, PTL .2f/.0f; `ss` → potência de 2 em `_ss_arg`, que é o que o render
+  usa de fato): jitter (`elevMin=812.0001`, `ss=600`) cai no MESMO tile em vez
+  de cunhar render novo, e o `/stats` devolve os percentis já arredondados
+  (float cru = URL única por vista na CDN). Quantização silenciosa, SEM
+  redirect (3xx precisaria de CORS, fica preso no cache e custa 1 ida-e-volta
+  por tile a consumidores externos). URLs já canônicas dão a MESMA chave de
+  antes — mudou a precisão → aí sim bump RENDER/TILE_VERSION. Não limita
+  renders ÚNICOS (z/x/y varia à vontade) — isso é rate limit na borda.
 
 ## Gotchas de infra
 
