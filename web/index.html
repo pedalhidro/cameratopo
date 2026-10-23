@@ -148,6 +148,17 @@
   .xyz-line input { width: 58px !important; }
   .xyz-line button { margin-left: auto; }
   .xyz-hint { margin: 0; font-size: 10px; color: var(--panel-muted); line-height: 1.4; }
+  #route-open {
+    display: block; padding: 6px 0; border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 11px; font-weight: 700; color: var(--accent); text-align: left;
+  }
+  /* Arrastando arquivo por cima: moldura avisando que dá pra soltar */
+  body.drop-hover::after {
+    content: "Solte o GPX ou GeoJSON para ver a rota"; position: fixed; inset: 12px; z-index: 3000;
+    display: flex; align-items: center; justify-content: center; pointer-events: none;
+    border: 3px dashed var(--accent); border-radius: 16px; background: rgba(0, 0, 0, 0.3);
+    color: #fff; font-size: 16px; font-weight: 700; text-shadow: 0 1px 3px #000;
+  }
   .xyz-hint code { font-size: 10px; }
   .layer-row.loading .ly-name::after { content: " ⏳"; animation: ly-pulse 1.1s infinite; }
   @keyframes ly-pulse { 50% { opacity: 0.25; } }
@@ -673,6 +684,8 @@
       <p class="xyz-hint">Tiles XYZ públicos em https, com <code>{z}</code>, <code>{x}</code> e <code>{y}</code>. Acima do zoom máx. o mapa reamplia. No globo/3D o servidor dos tiles precisa liberar CORS. A camada vai junto no link.</p>
     </form>
   </details>
+  <button id="route-open" type="button" title="Abrir rota GPX ou GeoJSON (ou arraste o arquivo pro mapa)">📂 abrir rota (GPX / GeoJSON)</button>
+  <input id="route-file" type="file" multiple hidden>
   <div class="grip" role="separator" aria-label="Redimensionar painel" title="Arraste para redimensionar"></div>
 </aside>
 
@@ -805,7 +818,8 @@
         como uma teleobjetiva; largo exagera a profundidade). <b>🌐 globo</b> mostra a
         Terra como esfera — no zoom afastado as áreas ficam em tamanho real (sem
         a Groenlândia do tamanho da África); chegando perto do chão ele vira
-        plano de novo sozinho. Os desenhos ficam só no 2D. <b>👁</b> é o modo imersivo: esconde
+        plano de novo sozinho. Os desenhos (e rotas abertas) aparecem também no globo/3D,
+        só pra ver — editar e apagar é no 2D. <b>👁</b> é o modo imersivo: esconde
         todos os controles (só o olho fica, mesclado ao mapa); toque de novo
         pra voltar. Botões ficam <b>realçados</b> quando ativos.</p>
 
@@ -819,6 +833,11 @@
         Esc pra <b>concluir</b> (nada se perde). Tocar num desenho pronto
         mostra a medida e a opção de apagá-lo. A linha <i>Desenhos</i> do
         painel ⧉ controla visibilidade e opacidade de todos eles.</p>
+      <p><b>Rotas GPX</b>: arraste um arquivo <code>.gpx</code> (ou GeoJSON, inclusive o
+        do 💾) pro mapa, ou toque em <b>📂 abrir rota</b> no fim do painel ⧉. Trilhas,
+        rotas e waypoints viram desenhos (com distância e, se o GPX tiver elevação,
+        subida/descida) e o mapa enquadra a rota — no 3D, por cima do terreno.
+        O arquivo é lido no navegador; nada vai pro servidor.</p>
 
       <h3>Modelo de elevação (DEM)</h3>
       <p><b>FABDEM</b> (~30 m) tem cobertura global. <b>SP · 5 m</b> é o DEM de São
@@ -2340,9 +2359,18 @@ function chaikin(pts, closed, iters) {
 }
 function smoothed(pts, closed) { return drawSmooth > 0 ? chaikin(pts, closed, drawSmooth) : pts; }
 
-function drawStyle() {
-  return { pane: "ly-desenhos", color: drawColor, weight: drawWeight, opacity: 1,
-           fillColor: drawColor, fillOpacity: drawFillOp / 100 };
+function curStyle() {
+  return { cor: drawColor, espessura: drawWeight, opacidadeInterna: drawFillOp, suavizacao: drawSmooth };
+}
+function styleFrom(st) {
+  return { pane: "ly-desenhos", color: st.cor, weight: st.espessura, opacity: 1,
+           fillColor: st.cor, fillOpacity: st.opacidadeInterna / 100 };
+}
+function drawStyle() { return styleFrom(curStyle()); }
+function pointLayer(latlng, st) {
+  const borda = st.cor === "#ffffff" ? "#474747" : "#ffffff";
+  return L.circleMarker(latlng, { pane: "ly-desenhos", radius: 5 + st.espessura,
+    color: borda, weight: st.espessura, fillColor: st.cor, fillOpacity: 1 });
 }
 function updatePreview(cursor) {
   const raw = cursor ? drawVerts.concat(cursor) : drawVerts;
@@ -2385,8 +2413,8 @@ function finishDraw() {
 }
 // Toda forma concluída: guarda o estilo (pro export) e ganha popup com a
 // medida + botão de apagar SÓ ela (tocar no desenho abre).
-function commitShape(layer, text) {
-  layer._drawStyle = { cor: drawColor, espessura: drawWeight, opacidadeInterna: drawFillOp, suavizacao: drawSmooth };
+function commitShape(layer, text, st = curStyle()) {
+  layer._drawStyle = st;
   const el = document.createElement("div");
   el.className = "draw-pop-row";
   if (text) { const pEl = document.createElement("span"); pEl.textContent = text; el.appendChild(pEl); }
@@ -2398,11 +2426,16 @@ function commitShape(layer, text) {
     layer.remove();
     const i = drawnShapes.indexOf(layer);
     if (i >= 0) drawnShapes.splice(i, 1);
+    drawingsChanged();
   });
   el.appendChild(del);
   layer.bindPopup(el, { className: "draw-pop", closeButton: false, minWidth: 0 });
   layer.addTo(map); drawnShapes.push(layer);
+  drawingsChanged();
 }
+// Desenhos mudaram → o globo/3D (que só os mostra) recebe a coleção nova.
+let draw3dStale = true;
+function drawingsChanged() { draw3dStale = true; if (in3d) sync3dLayers(); }
 function setDrawMode(mode) {
   if (drawMode === mode) {              // 2º toque no botão do modo ativo:
     if (mode === "point") cancelDraw(); // pontos: sai do modo
@@ -2422,9 +2455,7 @@ $("btn-draw-poly").addEventListener("click", () => setDrawMode("poly"));
 map.on("click", (e) => {
   if (!drawMode) return;
   if (drawMode === "point") {           // vários pontos em sequência
-    const borda = drawColor === "#ffffff" ? "#474747" : "#ffffff";
-    commitShape(L.circleMarker(e.latlng, { pane: "ly-desenhos", radius: 5 + drawWeight,
-      color: borda, weight: drawWeight, fillColor: drawColor, fillOpacity: 1 }), "");
+    commitShape(pointLayer(e.latlng, curStyle()), "");
     return;
   }
   drawVerts.push(e.latlng);
@@ -2444,6 +2475,7 @@ $("btn-clear").addEventListener("click", () => {
   if (!drawnShapes.length) { toast("Nada desenhado"); return; }
   for (const s of drawnShapes) s.remove();
   drawnShapes.length = 0;
+  drawingsChanged();
   toast("Desenhos removidos");
 });
 
@@ -2513,7 +2545,7 @@ $("btn-save").addEventListener("click", () => {
   if (!drawnShapes.length) { toast("Nada desenhado para salvar"); return; }
   const fc = { type: "FeatureCollection", features: drawnShapes.map((s) => {
     const f = s.toGeoJSON();
-    f.properties = Object.assign({}, f.properties, s._drawStyle || {});
+    f.properties = Object.assign({}, f.properties, s._drawStyle || {}, s._name ? { name: s._name } : {});
     return f;
   }) };
   const blob = new Blob([JSON.stringify(fc, null, 1)], { type: "application/geo+json" });
@@ -2523,6 +2555,143 @@ $("btn-save").addEventListener("click", () => {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   toast(`GeoJSON salvo (${fc.features.length} formas)`);
+});
+
+// ── Abrir rota (GPX / GeoJSON): arrastar o arquivo pro mapa ou 📂 no ⧉ ─────
+// Cada trilha/rota/waypoint vira desenho comum (popup com medida e apagar, 💾,
+// linha Desenhos do ⧉) e aparece também no globo/3D. Lido só no navegador.
+const CLIMB_TH_M = 3;   // histerese da subida/descida: o ruído do GPS não soma
+function climb(pts) {
+  let up = 0, down = 0, ref = null;
+  for (const p of pts) {
+    if (!Number.isFinite(p.alt)) continue;
+    if (ref === null) ref = p.alt;
+    else if (p.alt - ref >= CLIMB_TH_M) { up += p.alt - ref; ref = p.alt; }
+    else if (ref - p.alt >= CLIMB_TH_M) { down += ref - p.alt; ref = p.alt; }
+  }
+  return ref === null ? null : { up, down };
+}
+function routeText(name, segs) {
+  const parts = name ? [name] : [];
+  parts.push(fmtLen(segs.reduce((s, seg) => s + pathLen(seg), 0)));
+  const c = climb(segs.flat());
+  if (c) parts.push(`↑ ${fmtNum(c.up, 0)} m ↓ ${fmtNum(c.down, 0)} m`);
+  return parts.join(" · ");
+}
+const geoPt = (lat, lng, alt) => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return Number.isFinite(alt) ? L.latLng(lat, lng, alt) : L.latLng(lat, lng);
+};
+function parseGpx(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("XML inválido");
+  const all = (el, tag) => [...el.getElementsByTagNameNS("*", tag)];
+  const child = (el, tag) => [...el.children].find((c) => c.localName === tag);
+  const nameOf = (el) => (child(el, "name")?.textContent || "").trim();
+  const pt = (el) => geoPt(parseFloat(el.getAttribute("lat")), parseFloat(el.getAttribute("lon")),
+                           parseFloat(child(el, "ele")?.textContent));
+  const seg = (els) => els.map(pt).filter(Boolean);
+  const out = [];
+  for (const trk of all(doc, "trk")) {
+    const segs = all(trk, "trkseg").map((s) => seg(all(s, "trkpt"))).filter((s) => s.length > 1);
+    if (segs.length) out.push({ kind: "line", name: nameOf(trk), segs });
+  }
+  for (const rte of all(doc, "rte")) {
+    const s = seg(all(rte, "rtept"));
+    if (s.length > 1) out.push({ kind: "line", name: nameOf(rte), segs: [s] });
+  }
+  for (const w of all(doc, "wpt")) {
+    const p = pt(w);
+    if (p) out.push({ kind: "point", name: nameOf(w), p });
+  }
+  return out;
+}
+function parseGeoJson(text) {
+  const j = JSON.parse(text);
+  const feats = j.type === "FeatureCollection" ? j.features
+    : j.type === "Feature" ? [j] : [{ type: "Feature", geometry: j, properties: {} }];
+  const ll = (c) => geoPt(c[1], c[0], c[2]);
+  const line = (cs) => cs.map(ll).filter(Boolean);
+  const out = [];
+  for (const f of feats || []) {
+    const g = f && f.geometry, pr = (f && f.properties) || {};
+    if (!g || !Array.isArray(g.coordinates)) continue;
+    const name = typeof pr.name === "string" ? pr.name : "";
+    // estilo do próprio 💾 (cor/espessura/opacidadeInterna) volta igual
+    const st = {};
+    if (/^#[0-9a-f]{6}$/i.test(pr.cor)) st.cor = pr.cor.toLowerCase();
+    if (Number.isFinite(pr.espessura)) st.espessura = Math.min(10, Math.max(1, pr.espessura));
+    if (Number.isFinite(pr.opacidadeInterna)) st.opacidadeInterna = Math.min(100, Math.max(0, pr.opacidadeInterna));
+    const base = { name, st };
+    const C = g.coordinates;
+    if (g.type === "Point") { const p = ll(C); if (p) out.push({ ...base, kind: "point", p }); }
+    else if (g.type === "MultiPoint") { for (const c of C) { const p = ll(c); if (p) out.push({ ...base, kind: "point", p }); } }
+    else if (g.type === "LineString") { const s = line(C); if (s.length > 1) out.push({ ...base, kind: "line", segs: [s] }); }
+    else if (g.type === "MultiLineString") {
+      const segs = C.map(line).filter((s) => s.length > 1);
+      if (segs.length) out.push({ ...base, kind: "line", segs });
+    } else if (g.type === "Polygon" || g.type === "MultiPolygon") {
+      for (const poly of g.type === "Polygon" ? [C] : C) {
+        const rings = poly.map(line).filter((r) => r.length > 2);
+        if (rings.length) out.push({ ...base, kind: "poly", rings });
+      }
+    }
+  }
+  return out;
+}
+function addImported(it) {
+  const st = Object.assign(curStyle(), it.st), sty = styleFrom(st);
+  let layer, text;
+  if (it.kind === "point") { layer = pointLayer(it.p, st); text = it.name; }
+  else if (it.kind === "line") {
+    layer = L.polyline(it.segs.length === 1 ? it.segs[0] : it.segs, sty);
+    text = routeText(it.name, it.segs);
+  } else {
+    layer = L.polygon(it.rings, sty);
+    text = [it.name, measureText("poly", layer.getLatLngs()[0])].filter(Boolean).join(" · ");
+  }
+  if (it.name) layer._name = it.name;   // volta no 💾
+  commitShape(layer, text, st);
+  return layer.getBounds ? layer.getBounds() : L.latLngBounds([layer.getLatLng()]);
+}
+async function openRouteFiles(files) {
+  const bounds = L.latLngBounds([]);
+  let n = 0;
+  for (const f of files) {
+    let items;
+    try {
+      const text = await f.text();
+      items = /^\s*[{[]/.test(text) ? parseGeoJson(text) : parseGpx(text);
+    } catch (e) { items = null; }
+    if (!items || !items.length) { toast(`Não consegui ler “${f.name}” — só GPX ou GeoJSON`); continue; }
+    for (const it of items) { bounds.extend(addImported(it)); n++; }
+  }
+  if (!n) return;
+  if (!P.lyOn.desenhos) { P.lyOn.desenhos = true; syncEeLayers(); syncLayersPanelValues(); writeHash(); }
+  map.fitBounds(bounds, { maxZoom: 16, padding: [48, 48] });
+  toast(n === 1 ? "Rota aberta" : `${n} formas abertas`);
+}
+$("route-open").addEventListener("click", () => $("route-file").click());
+$("route-file").addEventListener("change", (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";   // o mesmo arquivo de novo dispara change
+  openRouteFiles(files);
+});
+const dragHasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+document.addEventListener("dragover", (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();                       // sem isso o navegador abre o arquivo
+  e.dataTransfer.dropEffect = "copy";
+  document.body.classList.add("drop-hover");
+});
+document.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget) document.body.classList.remove("drop-hover");   // saiu da janela
+});
+document.addEventListener("drop", (e) => {
+  document.body.classList.remove("drop-hover");
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  openRouteFiles([...e.dataTransfer.files]);
 });
 
 // ── Modo imersivo (👁): só o mapa; o olho vira o INVERSO do que está embaixo ─
@@ -2538,7 +2707,7 @@ $("btn-eye").addEventListener("click", () => {
 // syncEeLayers — o servidor não renderiza tudo duas vezes) e acompanha a câmera
 // do MapLibre a cada moveend. Terreno = /terrain/ (Terrarium) do DEM
 // selecionado; por cima, as MESMAS camadas ligadas no ⧉, na mesma ordem e
-// opacidade (desenhos ficam só no 2D). Zoom: o MapLibre mede o mundo em 512 px
+// opacidade (desenhos também, só leitura — sync3dDrawings). Zoom: o MapLibre mede o mundo em 512 px
 // e o Leaflet em 256 → z3d = z2d − 1. Bearing: o leaflet-rotate gira o
 // conteúdo no sentido horário → bearing3d = −bearing2d.
 const TERRAIN_VERSION = "5";                       // = render.TERRAIN_VERSION — bump JUNTO
@@ -2567,10 +2736,11 @@ const terrainDem = () => (P.dem === "sp" ? "sp" : "fabdem");   // ee = FABDEM (m
 function layers3d() {
   const out = [];
   const esri = (svc) => `${ESRI}/${svc}/MapServer/tile/{z}/{y}/{x}`;
-  for (const id of P.stack) {
+  for (const [si, id] of P.stack.entries()) {
     const l = LAYER_BY_ID[id];
     if (!P.lyOn[id] || l.draw) continue;
     const opacity = layerOpacity(id) / 100;
+    const n0 = out.length;
     if (l.base === "osm") {
       out.push({ id, tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], maxzoom: 19, opacity });
     } else if (l.base) {
@@ -2586,6 +2756,7 @@ function layers3d() {
       // tela com pixelRatio 2); acima de maxzoom ele mesmo reamplia (sem 404)
       out.push({ id, tiles: [absUrl(eeLayerUrl(id))], maxzoom: l.zmax || 16, opacity, tileSize: l.hd ? 128 : 256 });
     }
+    for (let k = n0; k < out.length; k++) out[k].si = si;   // posição na pilha ⧉
   }
   return out;
 }
@@ -2637,6 +2808,40 @@ function applyFov() {
   $("fov3d").value = String(P.fov);
   $("fov3d-val").textContent = `${Math.round(P.fov)}°`;
 }
+// Desenhos/rotas no globo/3D, só leitura (editar e apagar é no 2D): uma fonte
+// GeoJSON com cor/traço de cada forma nas propriedades; com terreno o MapLibre
+// a drapeia no relevo. setData só quando os desenhos mudaram (draw3dStale).
+const DRAW3D = ["d-fill", "d-line", "d-pt"];
+function drawings3dData() {
+  return { type: "FeatureCollection", features: drawnShapes.map((s) => {
+    const f = s.toGeoJSON(), st = s._drawStyle;
+    f.properties = { cor: st.cor, w: st.espessura, fop: st.opacidadeInterna / 100,
+                     borda: st.cor === "#ffffff" ? "#474747" : "#ffffff" };
+    return f;
+  }) };
+}
+function sync3dDrawings() {
+  const src = map3d.getSource("desenhos");
+  if (!src) {
+    map3d.addSource("desenhos", { type: "geojson", data: drawings3dData() });
+    const geom = (types) => ["match", ["geometry-type"], types, true, false];
+    map3d.addLayer({ id: "d-fill", type: "fill", source: "desenhos", filter: geom(["Polygon", "MultiPolygon"]),
+      paint: { "fill-color": ["get", "cor"] } });
+    map3d.addLayer({ id: "d-line", type: "line", source: "desenhos", filter: ["!", geom(["Point", "MultiPoint"])],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": ["get", "cor"], "line-width": ["get", "w"] } });
+    map3d.addLayer({ id: "d-pt", type: "circle", source: "desenhos", filter: geom(["Point", "MultiPoint"]),
+      paint: { "circle-color": ["get", "cor"], "circle-radius": ["+", 5, ["get", "w"]],
+               "circle-stroke-color": ["get", "borda"], "circle-stroke-width": ["get", "w"] } });
+  } else if (draw3dStale) src.setData(drawings3dData());
+  draw3dStale = false;
+  const op = layerOpacity("desenhos") / 100;
+  for (const id of DRAW3D) map3d.setLayoutProperty(id, "visibility", P.lyOn.desenhos ? "visible" : "none");
+  map3d.setPaintProperty("d-fill", "fill-opacity", ["*", ["get", "fop"], op]);
+  map3d.setPaintProperty("d-line", "line-opacity", op);
+  map3d.setPaintProperty("d-pt", "circle-opacity", op);
+  map3d.setPaintProperty("d-pt", "circle-stroke-opacity", op);
+}
 // Reconcilia o MapLibre com o estado (camadas, URLs, ordem, opacidade, DEM).
 function sync3dLayers() {
   if (!map3d || !map3dLoaded) return;
@@ -2659,6 +2864,10 @@ function sync3dLayers() {
     map3d.setPaintProperty(sid, "raster-opacity", w.opacity);
   }
   for (const w of want) map3d.moveLayer("r-" + w.id);   // ordem da pilha ⧉
+  sync3dDrawings();                                     // desenhos no lugar deles na pilha
+  const di = P.stack.indexOf("desenhos");
+  for (const id of DRAW3D) map3d.moveLayer(id);
+  for (const w of want) if (w.si > di) map3d.moveLayer("r-" + w.id);
   if (terrainDemOn !== (wantTerrain() ? terrainDem() : null)) mountTerrain();
   // Com terreno, as camadas raster são pintadas em texturas cacheadas (RTT)
   // drapeadas na malha, e a "impressão digital" do cache só olha os TILES — mudar

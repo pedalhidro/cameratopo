@@ -67,7 +67,16 @@ referência canônica do comportamento-alvo** (não roda aqui; documentação vi
   objeto órfão podado no `syncEeLayers`. Só https com {z}{x}{y}. Rótulo vem de
   link alheio → SEMPRE `esc()` no HTML do painel. No globo/3D tile XYZ de outra
   origem sem CORS falha no WebGL (o `<img>` do 2D não liga): erro de fonte com
-  status 0 → toast uma vez por camada. É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
+  status 0 → toast uma vez por camada.
+  **Rotas GPX/GeoJSON**: arrastar o arquivo pro mapa (drop no `document`) ou
+  "📂 abrir rota" no fim do ⧉ (o único caminho no iPhone; `<input type=file>`
+  SEM `accept` — o iOS acinzenta .gpx) → `parseGpx`/`parseGeoJson` no navegador
+  (nada vai ao servidor) → `addImported` = desenho comum via `commitShape`
+  (popup com distância e ↑/↓ com histerese de 3 m, 💾 exporta com `name` e
+  estilo, que voltam no reimport). Desenhos aparecem no globo/3D SÓ LEITURA
+  (`sync3dDrawings`: fonte GeoJSON `desenhos` + `d-fill/d-line/d-pt` na posição
+  da pilha ⧉, drapeados no terreno); toda mudança em `drawnShapes` chama
+  `drawingsChanged()` (setData só então). É um **PWA**: `web/manifest.json` + `web/sw.js` (shell
   stale-while-revalidate; tiles/stats SÓ rede) + ícones renderizados pelo
   próprio render.py. **Bump do `VERSION` do sw.js em QUALQUER mudança de
   arquivo servido** (convenção do workspace) — além do par
